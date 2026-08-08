@@ -917,13 +917,30 @@ def process_photos(target_dir, cookies_arg, url, platform="",
 
 
 def process_videos(target_dir, cookies_arg, url, platform="",
-                   progress_obj=None, active_task_id=None):
+                   username="", progress_obj=None, active_task_id=None):
     check_archive(target_dir / "Videos", target_dir / "Videos/archive.txt")
     console.print(f" [{C['primary']}]Checking Videos...[/{C['primary']}]")
+
+    # 1) Normal profile / feed videos
     rc = retry_gd(
         target_dir / "Videos", VIDEO_FILTER, cookies_arg, url,
-        progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
+        progress_obj=progress_obj, active_task_id=active_task_id,
+        platform_name=platform
     )
+
+    # 2) Instagram Reels (separate URL — this is what was missing)
+    if platform == "instagram" and username:
+        reels_url = f"https://www.instagram.com/{username}/reels/"
+        console.print(f" [{C['primary']}]Checking Instagram Reels...[/{C['primary']}]")
+        reels_rc = retry_gd(
+            target_dir / "Videos", VIDEO_FILTER, cookies_arg, reels_url,
+            progress_obj=progress_obj, active_task_id=active_task_id,
+            platform_name=platform
+        )
+        # Keep the worse of the two return codes
+        if reels_rc != 0 and rc == 0:
+            rc = reels_rc
+
     if rc != 0:
         console.print(
             f" [{C['warning']}]gallery-dl failed after retries, trying yt-dlp..."
@@ -931,8 +948,19 @@ def process_videos(target_dir, cookies_arg, url, platform="",
         )
         yt_rc = retry_yt(
             target_dir / "Videos", cookies_arg, url,
-            progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
+            progress_obj=progress_obj, active_task_id=active_task_id,
+            platform_name=platform
         )
+        # Also try Reels with yt-dlp if Instagram
+        if platform == "instagram" and username:
+            reels_url = f"https://www.instagram.com/{username}/reels/"
+            yt_reels_rc = retry_yt(
+                target_dir / "Videos", cookies_arg, reels_url,
+                progress_obj=progress_obj, active_task_id=active_task_id,
+                platform_name=platform
+            )
+            if yt_reels_rc != 0 and yt_rc == 0:
+                yt_rc = yt_reels_rc
         if yt_rc != 0:
             console.print(
                 f" [{C['error']}][ERROR] yt-dlp also failed with code {yt_rc} "
@@ -1004,7 +1032,8 @@ def download_profile(username, target_dir, platform, original_url, choice,
         ))
     elif choice == "2":
         results.append(process_videos(
-            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, username,
+            progress_obj, active_task_id
         ))
     elif choice == "3":
         results.append(process_stories(
@@ -1019,7 +1048,8 @@ def download_profile(username, target_dir, platform, original_url, choice,
             target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
         ))
         results.append(process_videos(
-            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, username,
+            progress_obj, active_task_id
         ))
     elif choice == "6":
         results.append(process_stories(
@@ -1033,7 +1063,8 @@ def download_profile(username, target_dir, platform, original_url, choice,
             target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
         ))
         results.append(process_videos(
-            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, username,
+            progress_obj, active_task_id
         ))
         results.append(process_stories(
             target_dir, cookies_arg, platform, username, progress_obj, active_task_id
