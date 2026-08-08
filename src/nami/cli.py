@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Nami v2.3.7 — multi-platform media downloader (gallery-dl + yt-dlp)
+Nami v2.3.8 — multi-platform media downloader (gallery-dl + yt-dlp)
 
 First-run Setup creates:
 
@@ -27,7 +27,7 @@ try:
     from importlib.metadata import version as pkg_version
     __version__ = pkg_version("nami")
 except Exception:
-    __version__ = "2.3.7"
+    __version__ = "2.3.8"
 
 try:
     from rich.console import Console
@@ -112,6 +112,47 @@ C = {
     "panel_border": "#C45C2A" if THEME == "light" else "#D97757",
     "bar_complete": "#C45C2A" if THEME == "light" else "#D97757",
 }
+
+
+def _nami_banner() -> Text:
+    """
+    Fastfetch-style wave banner adapted for Nami.
+    Uses the project's accent colors (no emoji).
+    """
+    # Wave lines use accent color; title uses primary
+    wave = [
+        " ⢀⣠⣴⣶⣶⣦⣄⡀",
+        " ⢀⣴⣿⣿⣿⣿⣿⣿⣿⣷⣄",
+        " ⣠⣾⣿⣿⣿⠟⠋⠉⠙⠻⣿⣿⣷⡄",
+        " ⢠⣾⣿⣿⡿⠋",
+        " ⣀⣤⣶⣶⣤⡀ ⣴⣿⣿⣿⠋ ⣀⣤⣶⣶⣤⡀",
+        " ⣠⣾⣿⠟⠛⠻⣿⣷⣄⣰⣿⣿⡟⠁ ⣠⣾⣿⠟⠛⠻⣿⣷⣄",
+        "⣴⣿⡟⠁ ⠙⢿⣿⣿⡟⠁ ⣴⣿⡟⠁ ⠙⢿⣷⣄",
+        "∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿",
+        " ⌐‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾",
+        " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+    ]
+
+    t = Text()
+    t.append("\n")
+    for i, line in enumerate(wave):
+        # Top part of the wave
+        if i < 4:
+            t.append(line + "\n", style=C["accent"])
+        # Middle crest
+        elif i < 7:
+            t.append(line + "\n", style=C["accent_b"])
+        # Foam / base lines
+        else:
+            t.append(line + "\n", style=C["accent"])
+
+    t.append("\n")
+    t.append("              N A M I\n", style=C["primary"])
+    t.append("        multi-platform media downloader\n", style=C["muted"])
+    t.append(f"                 v{__version__}\n", style=C["muted"])
+    t.append("\n")
+    return t
+
 
 
 def _make_console() -> Console:
@@ -1359,6 +1400,7 @@ def run_downloads(choice: str) -> None:
 
 def show_main_menu() -> str:
     clear_screen()
+    console.print(Align.center(_nami_banner()))
     configured = is_configured()
     menu_text = Text()
 
