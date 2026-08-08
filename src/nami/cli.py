@@ -113,7 +113,29 @@ C = {
     "bar_complete": "#C45C2A" if THEME == "light" else "#D97757",
 }
 
-console = Console(force_terminal=True, color_system="truecolor")
+
+def _make_console() -> Console:
+    """
+    Create a Rich Console that respects:
+    - NO_COLOR / FORCE_COLOR environment variables
+    - Whether stdout is a real TTY
+    - Terminal color capability
+    """
+    # Standard NO_COLOR convention → disable all color
+    if os.environ.get("NO_COLOR"):
+        return Console(force_terminal=False, no_color=True, color_system=None)
+
+    # FORCE_COLOR=1 is also a common convention
+    force = os.environ.get("FORCE_COLOR", "").strip().lower() in ("1", "true", "yes")
+
+    return Console(
+        force_terminal=True if force else None,  # None = auto-detect TTY
+        color_system="auto",                     # let Rich choose best system
+        highlight=False,
+    )
+
+
+console = _make_console()
 
 BASE_DIR: Path | None = None
 COOKIES_DIR: Path | None = None
