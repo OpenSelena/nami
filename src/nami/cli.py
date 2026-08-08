@@ -141,10 +141,11 @@ BASE_DIR: Path | None = None
 COOKIES_DIR: Path | None = None
 PROFILES_DIR: Path | None = None
 BROWSER: str = "brave"
-UA = (
+UA = os.environ.get(
+    "NAMI_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/126.0.0.0 Safari/537.36"
+    "Chrome/131.0.0.0 Safari/537.36"
 )
 MAX_RETRIES = 2
 DEBUG_LOG: Path | None = None
@@ -485,14 +486,21 @@ def check_environment() -> None:
 
 
 def is_brave_running() -> bool:
-    if sys.platform != "win32":
-        return False
+    """Return True if a Brave process appears to be running."""
     try:
-        res = subprocess.run(
-            ["tasklist", "/fi", "imagename eq brave.exe"],
-            capture_output=True, text=True, check=True
-        )
-        return "brave.exe" in res.stdout.lower()
+        if sys.platform == "win32":
+            res = subprocess.run(
+                ["tasklist", "/fi", "imagename eq brave.exe"],
+                capture_output=True, text=True, timeout=5
+            )
+            return "brave.exe" in res.stdout.lower()
+        else:
+            # macOS / Linux
+            res = subprocess.run(
+                ["pgrep", "-f", "Brave"],
+                capture_output=True, text=True, timeout=5
+            )
+            return bool(res.stdout.strip())
     except Exception as e:
         log_debug("is_brave_running", e)
         return False

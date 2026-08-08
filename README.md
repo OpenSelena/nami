@@ -124,6 +124,7 @@ User settings are saved automatically in `~/.nami/nami_config.json`. You can als
 | `NAMI_COOKIES_DIR` | Custom Netscape cookie directory path | Configured path |
 | `NAMI_PROFILES_DIR` | Custom profile text files directory path | Configured path |
 | `NAMI_BROWSER` | Browser for automated cookie extraction (`brave`, `chrome`, `edge`, `firefox`) | `brave` |
+| `NAMI_USER_AGENT` | Custom HTTP User-Agent string for request headers | Chrome 131 standard string |
 | `NAMI_SKIP_ENV_CHECK` | Set to `1` to skip initial dependency verification | `0` |
 
 ### Customizing Theme Contrast
