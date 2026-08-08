@@ -8,3 +8,6 @@ build/
 .nami/
 nami_config.json
 *.log
+.vscode/
+.idea/
+.DS_Store

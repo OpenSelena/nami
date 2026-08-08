@@ -113,12 +113,21 @@ nami
 
 ---
 
-## Configuration & Themes
+## Configuration & Environment Variables
 
-User settings are saved automatically in `~/.nami/nami_config.json`.
+User settings are saved automatically in `~/.nami/nami_config.json`. You can also configure Nami via environment variables:
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `NAMI_THEME` | Terminal theme styling (`dark` or `light`) | `dark` |
+| `NAMI_BASE_DIR` | Custom output downloads directory path | Configured path |
+| `NAMI_COOKIES_DIR` | Custom Netscape cookie directory path | Configured path |
+| `NAMI_PROFILES_DIR` | Custom profile text files directory path | Configured path |
+| `NAMI_BROWSER` | Browser for automated cookie extraction (`brave`, `chrome`, `edge`, `firefox`) | `brave` |
+| `NAMI_SKIP_ENV_CHECK` | Set to `1` to skip initial dependency verification | `0` |
 
 ### Customizing Theme Contrast
-Adjust terminal theme styling by setting the `NAMI_THEME` environment variable:
+Adjust terminal theme styling by setting `NAMI_THEME`:
 
 ```bash
 # Light Terminal Theme

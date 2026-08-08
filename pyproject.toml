@@ -1,35 +1,40 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "nami"
 version = "2.3.7"
-description = "Multi-platform media downloader (Instagram, TikTok, Facebook, X) powered by gallery-dl and yt-dlp"
+description = "An open-source CLI media downloader for Instagram, TikTok, Facebook, and X"
 readme = "README.md"
-requires-python = ">=3.10"
-license = "MIT"
 authors = [
     { name = "Igect" }
 ]
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "rich>=13.0.0",
+    "gallery-dl>=1.25.0",
+    "yt-dlp>=2023.1.1",
+]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-]
-dependencies = [
-    "rich",
-    "gallery-dl",
-    "yt-dlp",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Utilities",
 ]
 
 [project.urls]
 Homepage = "https://github.com/OpenSelena/nami"
-Issues = "https://github.com/OpenSelena/nami/issues"
+Repository = "https://github.com/OpenSelena/nami.git"
+"Bug Tracker" = "https://github.com/OpenSelena/nami/issues"
 
 [project.scripts]
 nami = "nami.cli:main"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Nami v0.0.1 — multi-platform media downloader (gallery-dl + yt-dlp)
+Nami v2.3.7 — multi-platform media downloader (gallery-dl + yt-dlp)
 
 First-run Setup creates:
 
@@ -24,6 +24,12 @@ import importlib.util
 from pathlib import Path
 
 try:
+    from importlib.metadata import version as pkg_version
+    __version__ = pkg_version("nami")
+except Exception:
+    __version__ = "2.3.7"
+
+try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.align import Align
@@ -41,12 +47,8 @@ except ImportError:
 
 CONFIG_DIR = Path.home() / ".nami"
 CONFIG_FILE = CONFIG_DIR / "nami_config.json"
-PROFILE_FILES = (
-    "instagram_profiles.txt",
-    "tiktok_profiles.txt",
-    "facebook_profiles.txt",
-    "x_profiles.txt",
-)
+PLATFORMS = ("instagram", "tiktok", "facebook", "x")
+PROFILE_FILES = tuple(f"{p}_profiles.txt" for p in PLATFORMS)
 
 
 def clear_screen() -> None:
@@ -104,7 +106,7 @@ C = {
     "muted": "dim",
     "accent": "#C45C2A" if THEME == "light" else "#D97757",
     "accent_b": "bold #C45C2A" if THEME == "light" else "bold #D97757",
-    "success": "bold #1a7a3a" if THEME == "light" else "bold #D97757",
+    "success": "bold #1a7a3a" if THEME == "light" else "#D97757",
     "warning": "bold #8a5a00" if THEME == "light" else "bold #E6B800",
     "error": "bold #b00020" if THEME == "light" else "bold #FF6B6B",
     "panel_border": "#C45C2A" if THEME == "light" else "#D97757",
@@ -123,7 +125,6 @@ UA = (
     "Chrome/126.0.0.0 Safari/537.36"
 )
 MAX_RETRIES = 2
-__version__ = "2.3.7"
 DEBUG_LOG: Path | None = None
 
 PHOTO_FILTER = (
@@ -162,15 +163,22 @@ def load_config() -> None:
 
     if not CONFIG_FILE.exists():
         if os.environ.get("NAMI_BASE_DIR") and os.environ.get("NAMI_COOKIES_DIR"):
-            BASE_DIR = Path(os.environ["NAMI_BASE_DIR"]).expanduser().resolve()
-            COOKIES_DIR = Path(os.environ["NAMI_COOKIES_DIR"]).expanduser().resolve()
-            env_prof = os.environ.get("NAMI_PROFILES_DIR")
-            if env_prof:
-                PROFILES_DIR = Path(env_prof).expanduser().resolve()
-            else:
-                PROFILES_DIR = BASE_DIR.parent / "profiles"
-            BROWSER = os.environ.get("NAMI_BROWSER", "brave").strip() or "brave"
-            DEBUG_LOG = BASE_DIR / "nami_debug.log"
+            try:
+                BASE_DIR = Path(os.environ["NAMI_BASE_DIR"]).expanduser().resolve()
+                COOKIES_DIR = Path(os.environ["NAMI_COOKIES_DIR"]).expanduser().resolve()
+                env_prof = os.environ.get("NAMI_PROFILES_DIR")
+                if env_prof:
+                    PROFILES_DIR = Path(env_prof).expanduser().resolve()
+                else:
+                    PROFILES_DIR = BASE_DIR.parent / "profiles"
+                BROWSER = os.environ.get("NAMI_BROWSER", "brave").strip() or "brave"
+                DEBUG_LOG = BASE_DIR / "nami_debug.log"
+            except Exception as e:
+                console.print(
+                    f"[{C['error']}][ERROR] Invalid NAMI_* path environment variables: {e}"
+                    f"[/{C['error']}]"
+                )
+                BASE_DIR = COOKIES_DIR = PROFILES_DIR = None
         return
 
     try:
@@ -499,10 +507,14 @@ def check_archive(directory, archive_file) -> None:
                 log_debug(f"check_archive unlink({archive_path})", e)
         return
 
-    media_count = sum(
-        1 for item in dir_path.iterdir()
-        if item.is_file() and item.suffix.lower() in MEDIA_EXTS
-    )
+    try:
+        media_count = sum(
+            1 for item in dir_path.iterdir()
+            if item.is_file() and item.suffix.lower() in MEDIA_EXTS
+        )
+    except OSError as e:
+        log_debug(f"check_archive({directory})", e)
+        return
 
     if media_count == 0:
         if archive_path.exists():
@@ -546,38 +558,50 @@ def run_command(cmd, silent_log_path=None, progress_obj=None, active_task_id=Non
             text=True, encoding="utf-8", errors="replace", bufsize=1
         )
         items_processed = 0
-        for line in process.stdout:
-            line_stripped = line.strip()
-            if not line_stripped:
-                continue
-            if looks_like_media_output_line(line_stripped):
-                items_processed += 1
-                file_name = os.path.basename(line_stripped.lstrip("#").strip())
-                if line_stripped.startswith("#"):
-                    console.print(f" [{C['muted']}]# {file_name}[/{C['muted']}]")
-                    if progress_obj is not None and active_task_id is not None:
-                        progress_obj.update(
-                            active_task_id,
-                            completed=items_processed,
-                            total=items_processed + 10,
-                            status=f"[{C['muted']}]Checking: {file_name[:25]}...[/{C['muted']}]"
-                        )
-                else:
-                    console.print(f" [{C['accent_b']}]-> {file_name}[/{C['accent_b']}]")
-                    if progress_obj is not None and active_task_id is not None:
-                        progress_obj.update(
-                            active_task_id,
-                            completed=items_processed,
-                            total=items_processed + 10,
-                            status=(
-                                f"[{C['accent_b']}]Downloaded: "
-                                f"{file_name[:25]}...[/{C['accent_b']}]"
+        try:
+            for line in process.stdout:
+                line_stripped = line.strip()
+                if not line_stripped:
+                    continue
+                if looks_like_media_output_line(line_stripped):
+                    items_processed += 1
+                    file_name = os.path.basename(line_stripped.lstrip("#").strip())
+                    if line_stripped.startswith("#"):
+                        console.print(f" [{C['muted']}]# {file_name}[/{C['muted']}]")
+                        if progress_obj is not None and active_task_id is not None:
+                            progress_obj.update(
+                                active_task_id,
+                                completed=items_processed,
+                                total=None,
+                                status=f"[{C['muted']}]Checking: {file_name[:25]}...[/{C['muted']}]"
                             )
-                        )
-            else:
-                console.print(f" [{C['muted']}]{line_stripped}[/{C['muted']}]")
-        process.wait()
-        return process.returncode
+                    else:
+                        console.print(f" [{C['accent_b']}]-> {file_name}[/{C['accent_b']}]")
+                        if progress_obj is not None and active_task_id is not None:
+                            progress_obj.update(
+                                active_task_id,
+                                completed=items_processed,
+                                total=None,
+                                status=(
+                                    f"[{C['accent_b']}]Downloaded: "
+                                    f"{file_name[:25]}...[/{C['accent_b']}]"
+                                )
+                            )
+                else:
+                    console.print(f" [{C['muted']}]{line_stripped}[/{C['muted']}]")
+            process.wait(timeout=7200)  # 2h safety net against permanent hangs
+            return process.returncode
+        except subprocess.TimeoutExpired:
+            console.print(f" [{C['error']}][ERROR] Download timed out after 2 hours[/{C['error']}]")
+            process.kill()
+            return 1
+        except KeyboardInterrupt:
+            process.terminate()
+            try:
+                process.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            raise
     except KeyboardInterrupt:
         raise
     except Exception as e:
@@ -656,8 +680,13 @@ def parse_url(url, platform):
         url = "https://" + url
     try:
         parsed = urllib.parse.urlparse(url)
-        domain = parsed.netloc.replace("www.", "").lower()
-        path = parsed.path.strip("/")
+        domain = parsed.netloc.lower()
+        # Strip common mobile / subdomain prefixes
+        for prefix in ("www.", "m.", "mobile.", "vm.", "business."):
+            if domain.startswith(prefix):
+                domain = domain[len(prefix):]
+                break
+
         valid_domains = {
             "instagram": ["instagram.com"],
             "tiktok": ["tiktok.com"],
@@ -666,11 +695,26 @@ def parse_url(url, platform):
         }
         if domain not in valid_domains.get(platform, []):
             return "INVALID_URL"
+
+        path = parsed.path.strip("/")
         path_parts = [p for p in path.split("/") if p]
         if not path_parts:
             return None
+
+        # Facebook numeric ID format: /profile.php?id=123456789
+        if path_parts[0].lower() == "profile.php":
+            query = urllib.parse.parse_qs(parsed.query)
+            ids = query.get("id")
+            if ids and ids[0].isdigit():
+                return ids[0]
+            return None
+
         username = path_parts[0].replace("@", "")
-        if username.lower() in ("p", "reel", "tv", "highlights"):
+        # Reject common non-profile path segments across platforms
+        if username.lower() in (
+            "p", "reel", "tv", "highlights", "stories",
+            "groups", "events", "hashtag", "i", "explore", "reels"
+        ):
             return None
         username = username.split("?")[0].split("#")[0]
         return username if username else None
@@ -680,6 +724,30 @@ def parse_url(url, platform):
 
 
 def get_cookies_arg(platform):
+    if COOKIES_DIR is None:
+        # Still allow browser cookies for TikTok even without a cookies dir
+        if platform == "tiktok":
+            if is_brave_running():
+                console.print(
+                    f" [{C['warning']}][WARN] Brave is currently running - TikTok "
+                    f"cookie read via --cookies-from-browser may get a locked/"
+                    f"stale DB. Close Brave fully if TikTok keeps failing."
+                    f"[/{C['warning']}]"
+                )
+            return ["--cookies-from-browser", BROWSER]
+        return []
+
+    # Prefer explicit Netscape cookie file for every platform (including TikTok)
+    cookie_file = COOKIES_DIR / f"{platform}.com_cookies.txt"
+    if cookie_file.exists():
+        if validate_cookie(cookie_file):
+            return ["--cookies", str(cookie_file)]
+        console.print(
+            f" [{C['warning']}][WARN] Cookie file {cookie_file.name} failed "
+            f"validation, continuing without cookies.[/{C['warning']}]"
+        )
+
+    # Fallback for TikTok: browser cookies
     if platform == "tiktok":
         if is_brave_running():
             console.print(
@@ -690,16 +758,6 @@ def get_cookies_arg(platform):
             )
         return ["--cookies-from-browser", BROWSER]
 
-    if COOKIES_DIR is None:
-        return []
-    cookie_file = COOKIES_DIR / f"{platform}.com_cookies.txt"
-    if cookie_file.exists():
-        if validate_cookie(cookie_file):
-            return ["--cookies", str(cookie_file)]
-        console.print(
-            f" [{C['warning']}][WARN] Cookie file {cookie_file.name} failed "
-            f"validation, continuing without cookies.[/{C['warning']}]"
-        )
     return []
 
 
@@ -759,6 +817,7 @@ def retry_with_cookie_fallback(attempt_fn, cookies_arg, log_file, tool_name,
                 f"Retrying anonymous fallback run...[/{C['warning']}]"
             )
             current_cookies = []
+            time.sleep(3)  # short backoff after credential rejection
             continue
         if attempt < MAX_RETRIES:
             wait_time = (attempt + 1) * 10
@@ -769,14 +828,14 @@ def retry_with_cookie_fallback(attempt_fn, cookies_arg, log_file, tool_name,
             )
             time.sleep(wait_time)
         else:
-            attempt_fn(cookies_arg, True)
+            attempt_fn(current_cookies, True)
             diagnose_log(log_file, tool_name)
             return rc
     return 1
 
 
 def retry_gd(directory, filter_str, cookies_arg, url,
-             progress_obj=None, active_task_id=None):
+             progress_obj=None, active_task_id=None, platform_name=""):
     log_file = Path(directory) / "lastrun.log"
 
     def attempt(cookies, silent):
@@ -787,14 +846,15 @@ def retry_gd(directory, filter_str, cookies_arg, url,
             progress_obj=progress_obj, active_task_id=active_task_id
         )
 
+    context = f"by {platform_name.capitalize()}" if platform_name else ""
     return retry_with_cookie_fallback(
         attempt, cookies_arg, log_file, "gallery-dl",
-        cookie_reject_context="by Instagram"
+        cookie_reject_context=context
     )
 
 
 def retry_yt(directory, cookies_arg, url,
-             progress_obj=None, active_task_id=None):
+             progress_obj=None, active_task_id=None, platform_name=""):
     log_file = Path(directory) / "lastrun.log"
 
     def attempt(cookies, silent):
@@ -803,16 +863,20 @@ def retry_yt(directory, cookies_arg, url,
             progress_obj=progress_obj, active_task_id=active_task_id
         )
 
-    return retry_with_cookie_fallback(attempt, cookies_arg, log_file, "yt-dlp")
+    context = f"by {platform_name.capitalize()}" if platform_name else ""
+    return retry_with_cookie_fallback(
+        attempt, cookies_arg, log_file, "yt-dlp",
+        cookie_reject_context=context
+    )
 
 
-def process_photos(target_dir, cookies_arg, url,
+def process_photos(target_dir, cookies_arg, url, platform="",
                    progress_obj=None, active_task_id=None):
     check_archive(target_dir / "Photos", target_dir / "Photos/archive.txt")
     console.print(f" [{C['primary']}]Checking Photos...[/{C['primary']}]")
     rc = retry_gd(
         target_dir / "Photos", PHOTO_FILTER, cookies_arg, url,
-        progress_obj=progress_obj, active_task_id=active_task_id
+        progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
     )
     if rc != 0:
         console.print(
@@ -822,13 +886,13 @@ def process_photos(target_dir, cookies_arg, url,
     return rc
 
 
-def process_videos(target_dir, cookies_arg, url,
+def process_videos(target_dir, cookies_arg, url, platform="",
                    progress_obj=None, active_task_id=None):
     check_archive(target_dir / "Videos", target_dir / "Videos/archive.txt")
     console.print(f" [{C['primary']}]Checking Videos...[/{C['primary']}]")
     rc = retry_gd(
         target_dir / "Videos", VIDEO_FILTER, cookies_arg, url,
-        progress_obj=progress_obj, active_task_id=active_task_id
+        progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
     )
     if rc != 0:
         console.print(
@@ -837,7 +901,7 @@ def process_videos(target_dir, cookies_arg, url,
         )
         yt_rc = retry_yt(
             target_dir / "Videos", cookies_arg, url,
-            progress_obj=progress_obj, active_task_id=active_task_id
+            progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
         )
         if yt_rc != 0:
             console.print(
@@ -861,7 +925,7 @@ def process_stories(target_dir, cookies_arg, platform, username,
     rc = retry_gd(
         target_dir / "Stories", None, cookies_arg,
         f"https://www.instagram.com/stories/{username}/",
-        progress_obj=progress_obj, active_task_id=active_task_id
+        progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
     )
     if rc != 0:
         console.print(
@@ -884,7 +948,7 @@ def process_highlights(target_dir, cookies_arg, platform, username,
     rc = retry_gd(
         target_dir / "Highlights", None, cookies_arg,
         f"https://www.instagram.com/{username}/highlights/",
-        progress_obj=progress_obj, active_task_id=active_task_id
+        progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
     )
     if rc != 0:
         console.print(
@@ -906,11 +970,11 @@ def download_profile(username, target_dir, platform, original_url, choice,
     # 5 Photos+Videos, 6 Stories+Highlights, 7 All
     if choice == "1":
         results.append(process_photos(
-            target_dir, cookies_arg, clean_url, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
         ))
     elif choice == "2":
         results.append(process_videos(
-            target_dir, cookies_arg, clean_url, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
         ))
     elif choice == "3":
         results.append(process_stories(
@@ -922,10 +986,10 @@ def download_profile(username, target_dir, platform, original_url, choice,
         ))
     elif choice == "5":
         results.append(process_photos(
-            target_dir, cookies_arg, clean_url, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
         ))
         results.append(process_videos(
-            target_dir, cookies_arg, clean_url, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
         ))
     elif choice == "6":
         results.append(process_stories(
@@ -936,10 +1000,10 @@ def download_profile(username, target_dir, platform, original_url, choice,
         ))
     elif choice == "7":
         results.append(process_photos(
-            target_dir, cookies_arg, clean_url, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
         ))
         results.append(process_videos(
-            target_dir, cookies_arg, clean_url, progress_obj, active_task_id
+            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
         ))
         results.append(process_stories(
             target_dir, cookies_arg, platform, username, progress_obj, active_task_id
@@ -1066,6 +1130,7 @@ def run_downloads(choice: str) -> None:
         input("\nPress Enter to continue...")
         return
 
+    original_cwd = Path.cwd()
     try:
         os.chdir(BASE_DIR)
     except OSError as e:
@@ -1076,7 +1141,7 @@ def run_downloads(choice: str) -> None:
         input("\nPress Enter to continue...")
         return
 
-    platforms = ["instagram", "tiktok", "facebook", "x"]
+    platforms = list(PLATFORMS)
     total_profiles = 0
     profiles_to_process = []
 
@@ -1178,12 +1243,19 @@ def run_downloads(choice: str) -> None:
                     visible=True
                 )
 
-                success = download_profile(
-                    username, BASE_DIR / plat / username, plat,
-                    original_line, choice, progress, active_task
-                )
-                if not success:
-                    failed_profiles.append(f"{plat.upper()}: {username}")
+                try:
+                    success = download_profile(
+                        username, BASE_DIR / plat / username, plat,
+                        original_line, choice, progress, active_task
+                    )
+                    if not success:
+                        failed_profiles.append(f"{plat.upper()}: {username}")
+                except Exception as e:
+                    log_debug(f"profile {plat}/{username}", e)
+                    failed_profiles.append(f"{plat.upper()}: {username} (crashed)")
+                    progress.console.print(
+                        f" [{C['error']}][ERROR] Profile crashed: {e}[/{C['error']}]"
+                    )
 
                 progress.advance(overall_task, 1)
                 progress.update(active_task, visible=False)
@@ -1214,6 +1286,13 @@ def run_downloads(choice: str) -> None:
             ),
             border_style=C["panel_border"]
         ))
+
+    # Restore original working directory (H-4)
+    try:
+        os.chdir(original_cwd)
+    except Exception:
+        pass
+
     input("\nPress Enter to continue...")
 
 
