@@ -694,6 +694,11 @@ def diagnose_log(log_path, tool_name) -> None:
                 f" [{C['error']}][DIAGNOSIS] possible urllib3 namespace conflict "
                 f"(urllib3-future/niquests).[/{C['error']}]"
             )
+        elif "no results for" in content:
+            console.print(
+                f" [{C['error']}][DIAGNOSIS] NO RESULTS FOUND - target URL was malformed, "
+                f"private, or has no public photos/media.[/{C['error']}]"
+            )
         else:
             console.print(
                 f" [{C['error']}][DIAGNOSIS] unrecognized failure - see "
@@ -1020,9 +1025,21 @@ def process_highlights(target_dir, cookies_arg, platform, username,
 def download_profile(username, target_dir, platform, original_url, choice,
                      progress_obj, active_task_id):
     cookies_arg = get_cookies_arg(platform)
-    clean_url = original_url.rstrip("/")
-    if not clean_url.startswith("http"):
-        clean_url = "https://" + clean_url
+    if platform == "instagram" and username:
+        clean_url = f"https://www.instagram.com/{username}/"
+    elif platform == "tiktok" and username:
+        clean_url = f"https://www.tiktok.com/@{username}"
+    elif platform == "facebook" and username:
+        if username.isdigit():
+            clean_url = f"https://www.facebook.com/profile.php?id={username}"
+        else:
+            clean_url = f"https://www.facebook.com/{username}"
+    elif platform == "x" and username:
+        clean_url = f"https://x.com/{username}"
+    else:
+        clean_url = original_url.rstrip("/")
+        if not clean_url.startswith("http"):
+            clean_url = "https://" + clean_url
 
     results = []
     # 1 Photos, 2 Videos, 3 Stories, 4 Highlights,
