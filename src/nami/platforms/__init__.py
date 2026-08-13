@@ -23,12 +23,20 @@ class DownloadResultStatus(Enum):
 @dataclass
 class DownloadResult:
     status: DownloadResultStatus
+    extractor: str | None = None
+    fallback_extractor: str | None = None
     failure_type: FailureType | None = None
+    items_discovered: int = 0
     items_downloaded: int = 0
+    items_skipped: int = 0
     message: str = ""
 
     def to_display_string(self) -> str:
         if self.status == DownloadResultStatus.SUCCESS:
+            if self.fallback_extractor:
+                return f"✓ ({self.fallback_extractor})"
+            elif self.extractor:
+                return f"✓ ({self.extractor})"
             return "✓"
         elif self.status == DownloadResultStatus.UNSUPPORTED:
             return "N/A"

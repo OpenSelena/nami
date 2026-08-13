@@ -10,10 +10,10 @@
 [![GitHub Stars](https://img.shields.io/github/stars/OpenSelena/nami?style=for-the-badge&color=D97757)](https://github.com/OpenSelena/nami)
 
 <p align="center">
-  <b>Nami</b> is a lightweight, open-source media downloader designed for seamless batch extraction across social platforms. Combining <b>gallery-dl</b> and <b>yt-dlp</b> with an interactive <b>Rich terminal interface</b>, Nami automates deduplication, rate-limit retries, and browser cookie handling.
+  <b>Nami</b> is a lightweight, open-source media archiver designed for seamless multi-platform media extraction. Combining <b>Instaloader</b>, <b>gallery-dl</b>, and <b>yt-dlp</b> with an interactive <b>Rich terminal interface</b>, Nami orchestrates three specialized extraction engines with deterministic fallback rules, deduplication, and secure authentication.
 </p>
 
-[Installation](#installation) • [Usage Flow](#usage-flow) • [Supported Platforms](#supported-platforms) • [Directory Layout](#1-project-workspace-initializer) • [Configuration](#configuration)
+[Installation](#installation) • [Usage Flow](#usage-flow) • [Extractor Architecture](#extractor-architecture) • [Supported Platforms](#supported-platforms) • [Directory Layout](#1-project-workspace-initializer) • [Configuration](#configuration)
 
 </div>
 
@@ -21,23 +21,69 @@
 
 ## Features
 
-- **Photos & Videos**: Batch download high-resolution photos, reels, videos, and posts.
-- **Instagram Stories & Highlights**: Extract stories and highlight archives automatically.
-- **Smart Anti-Duplicate Archiving**: Automatic `archive.txt` tracking avoids re-downloading existing media.
-- **Automated Cookie Integration**: Supports Netscape cookie files and browser session extraction (`--cookies-from-browser`).
-- **Cookie Fallback & Retry Logic**: Automatically attempts anonymous fallbacks and handles rate-limits gracefully.
+- **Multi-Engine Orchestration**: Orchestrates `Instaloader`, `gallery-dl`, and `yt-dlp` simultaneously with deterministic capabilities.
+- **Instagram Primary & Fallback Strategy**: Uses Python-native `Instaloader` as the primary engine for Instagram profiles, posts, reels, stories, and highlights, with `gallery-dl` and `yt-dlp` as deterministic fallbacks.
+- **Non-Instagram Engines**: Uses `yt-dlp` (primary video engine) and `gallery-dl` (fallback/gallery engine) for TikTok, Facebook, and X.
+- **Failure-Aware Fallback**: Fallbacks are triggered only for capability/extractor errors. Rate limits (`429`) and network errors use backoff without stripping cookies or switching engines.
+- **Smart Deduplication & Archive Safety**: Historical download state in `archive.txt` is preserved and never automatically deleted when media directories are emptied.
+- **Authentication Security**: Supports Netscape cookie files, browser cookie extraction, and Instaloader sessions. Credentials and cookies are strictly masked from logs.
 - **Terminal UI**: Powered by `rich` with customizable contrast themes (`light` / `dark`).
+
+---
+
+## Extractor Architecture
+
+```text
+                         ┌─────────────────────┐
+                         │       NAMI CLI      │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │   Platform Router   │
+                         └──────────┬──────────┘
+                                    │
+             ┌──────────────────────┼──────────────────────┐
+             ▼                      ▼                      ▼
+       Instagram                  TikTok               Facebook / X
+             │                      │                      │
+             ▼                      ▼                      ▼
+       Extraction Plan        Extraction Plan        Extraction Plan
+             │                      │                      │
+             ▼                      ▼                      ▼
+       Extractor Manager       Extractor Manager      Extractor Manager
+             │                      │                      │
+        ┌────┼────┐            ┌────┴────┐             ┌──┴────┐
+        ▼    ▼    ▼            ▼         ▼             ▼       ▼
+     Insta  GD   YTDLP        YTDLP      GD           YTDLP    GD
+   loader
+        │    │    │
+        └────┼────┘
+             ▼
+      Failure Classifier
+             │
+      ┌──────┼─────────┐
+      ▼      ▼         ▼
+    Retry  Fallback   Stop
+```
+
+### Engine Assignment
+
+- **Instagram**: `Instaloader` (Primary) $\rightarrow$ `gallery-dl` / `yt-dlp` (Fallback)
+- **TikTok**: `yt-dlp` (Primary) $\rightarrow$ `gallery-dl` (Fallback)
+- **Facebook**: `yt-dlp` (Primary) $\rightarrow$ `gallery-dl` (Fallback)
+- **X (Twitter)**: `yt-dlp` (Primary) $\rightarrow$ `gallery-dl` (Fallback)
 
 ---
 
 ## Supported Platforms
 
-| Platform | Photos | Videos | Stories | Highlights | Authentication Mode | Status |
-| :--- | :---: | :---: | :---: | :---: | :--- | :---: |
-| **Instagram** | Included | Included | Included | Included | Netscape Cookie / Anonymous | Active |
-| **TikTok** | Included | Included | N/A | N/A | Browser DB / Netscape Cookie | Active |
-| **Facebook** | Included | Included | N/A | N/A | Netscape Cookie / Anonymous | Active |
-| **X (Twitter)** | Included | Included | N/A | N/A | Netscape Cookie / Anonymous | Active |
+| Platform | Photos | Videos | Stories | Highlights | Extractor Engines | Authentication Mode |
+| :--- | :---: | :---: | :---: | :---: | :--- | :--- |
+| **Instagram** | Included | Included | Included | Included | Instaloader / gallery-dl / yt-dlp | Session File / Netscape Cookie / Anonymous |
+| **TikTok** | Included | Included | N/A | N/A | yt-dlp / gallery-dl | Browser DB / Netscape Cookie |
+| **Facebook** | Included | Included | N/A | N/A | yt-dlp / gallery-dl | Netscape Cookie / Anonymous |
+| **X (Twitter)** | Included | Included | N/A | N/A | yt-dlp / gallery-dl | Netscape Cookie / Anonymous |
 
 ---
 
@@ -49,7 +95,7 @@ Install `nami` directly via `pip`:
 pip install nami
 ```
 
-*All dependencies (`rich`, `gallery-dl`, `yt-dlp`) are automatically installed.*
+*All extraction engines (`instaloader`, `gallery-dl`, `yt-dlp`) and `rich` are automatically installed.*
 
 To upgrade to the latest release:
 
@@ -67,7 +113,7 @@ When you launch `nami` for the first time, it automatically creates your local w
 ```text
 Nami/
 ├── downloads/      # Extracted media organized by platform & account
-├── cookies/        # Optional Netscape cookie files (*_cookies.txt)
+├── cookies/        # Netscape cookie files (*_cookies.txt) & Instaloader session files (session-*)
 └── profiles/       # Target account URL text files (*_profiles.txt)
 ```
 
@@ -83,8 +129,9 @@ Nami/profiles/
 ```
 
 ### 3. Session Authentication
-Place Netscape-formatted cookie files inside `Nami/cookies/` to download private content or bypass login restrictions:
-- `instagram.com_cookies.txt`
+Place Netscape-formatted cookie files or Instaloader session files inside `Nami/cookies/`:
+- `session-<username>` (Instaloader session file)
+- `instagram.com_cookies.txt` (Netscape cookie file)
 - `facebook.com_cookies.txt`
 - `x.com_cookies.txt`
 
@@ -95,48 +142,21 @@ Launch the application to run batch downloads across your configured profile lis
 nami
 ```
 
-```text
-┌──────────────────────── Nami ────────────────────────┐
-│ What do you want to download?                        │
-│                                                      │
-│ 1  Photos only                                       │
-│ 2  Videos only                                       │
-│ 3  Stories only                                      │
-│ 4  Highlights only                                   │
-│ 5  Photos + Videos                                   │
-│ 6  Stories + Highlights                              │
-│ 7  All                                               │
-│ 8  Settings                                          │
-│ 0  Exit                                              │
-└──────────────────────────────────────────────────────┘
-```
+---
+
+## Troubleshooting
+
+- **HTTP 429 Rate Limit**: Nami automatically enters backoff retry without stripping cookies or switching engines. If rate limited, wait a few minutes before retrying.
+- **urllib3 namespace conflicts**: Run `python -m pip install -U nami gallery-dl yt-dlp instaloader urllib3` to align dependencies.
+- **Missing Session / Cookie File**: Ensure cookie files are placed in `<workspace>/Nami/cookies/` and match the expected naming format (`<platform>.com_cookies.txt` or `session-<username>`).
 
 ---
 
-## Configuration & Environment Variables
+## Privacy & Security
 
-User settings are saved automatically in `~/.nami/nami_config.json`. You can also configure Nami via environment variables:
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `NAMI_THEME` | Terminal theme styling (`dark` or `light`) | `dark` |
-| `NAMI_BASE_DIR` | Custom output downloads directory path | Configured path |
-| `NAMI_COOKIES_DIR` | Custom Netscape cookie directory path | Configured path |
-| `NAMI_PROFILES_DIR` | Custom profile text files directory path | Configured path |
-| `NAMI_BROWSER` | Browser for automated cookie extraction (`brave`, `chrome`, `edge`, `firefox`) | `brave` |
-| `NAMI_USER_AGENT` | Custom HTTP User-Agent string for request headers | Chrome 131 standard string |
-| `NAMI_SKIP_ENV_CHECK` | Set to `1` to skip initial dependency verification | `0` |
-
-### Customizing Theme Contrast
-Adjust terminal theme styling by setting `NAMI_THEME`:
-
-```bash
-# Light Terminal Theme
-export NAMI_THEME=light
-
-# Dark Terminal Theme (Default)
-export NAMI_THEME=dark
-```
+- **No Passwords Stored**: Passwords are never logged or stored in `nami_config.json`.
+- **Log Masking**: Sensitive session tokens, raw cookies, and authentication headers are masked from debug logs.
+- **File Permissions**: Secure permissions (`0600` for files, `0700` for directories) are applied on Unix systems.
 
 ---
 

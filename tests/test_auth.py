@@ -1,14 +1,15 @@
 """Unit tests for Nami authentication and cookie handling."""
 
 from nami.auth import (
+    SUPPORTED_BROWSERS,
+    resolve_authentication,
     validate_browser,
     validate_cookie,
-    resolve_authentication,
-    SUPPORTED_BROWSERS,
 )
 
 
 def test_supported_browsers():
+    assert "brave" in SUPPORTED_BROWSERS
     assert validate_browser("brave")
     assert validate_browser("chrome")
     assert validate_browser("edge")

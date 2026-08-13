@@ -79,6 +79,8 @@ def check_environment_health() -> dict[str, Any]:
         missing.append("gallery-dl")
     if importlib.util.find_spec("yt_dlp") is None:
         missing.append("yt-dlp")
+    if importlib.util.find_spec("instaloader") is None:
+        missing.append("instaloader")
 
     is_hijacked, detail = probe_urllib3_identity()
     return {

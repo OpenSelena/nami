@@ -5,16 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from nami.archive import ArchiveLock, init_archive_dir
 from nami.auth import AuthConfig
-from nami.config import PHOTO_FILTER, VIDEO_FILTER
-from nami.downloader import download_gd, download_yt
+from nami.extractor_manager import ExtractorManager
 from nami.parser import ParsedTarget
 from nami.platforms import BasePlatformAdapter, DownloadResult, DownloadResultStatus
-from nami.retry import execute_with_intelligent_retry
 
 
 class XAdapter(BasePlatformAdapter):
+    def __init__(self, manager: ExtractorManager | None = None) -> None:
+        self.manager = manager or ExtractorManager()
+
     @property
     def platform_name(self) -> str:
         return "x"
@@ -28,25 +28,14 @@ class XAdapter(BasePlatformAdapter):
         active_task_id: Any = None,
     ) -> DownloadResult:
         photos_dir = target_dir / "Photos"
-        init_archive_dir(photos_dir)
-        cookies_arg = auth_config.to_cli_args()
-        log_file = photos_dir / "lastrun.log"
-
-        def attempt(cookies: list[str], silent: bool) -> tuple[int, str, str]:
-            return download_gd(
-                photos_dir, PHOTO_FILTER, cookies, target.original_url,
-                sleep_time="1" if silent else "5", silent=silent,
-                progress_obj=progress_obj, active_task_id=active_task_id
-            )
-
-        with ArchiveLock(photos_dir):
-            rc, failure_type, output = execute_with_intelligent_retry(
-                attempt, cookies_arg, log_file, "gallery-dl (x photos)"
-            )
-
-        if rc == 0:
-            return DownloadResult(status=DownloadResultStatus.SUCCESS)
-        return DownloadResult(status=DownloadResultStatus.FAILED, failure_type=failure_type, message=output[:200])
+        return self.manager.download(
+            target=target,
+            content_type="photos",
+            destination=photos_dir,
+            auth=auth_config,
+            progress_obj=progress_obj,
+            active_task_id=active_task_id,
+        )
 
     def download_videos(
         self,
@@ -57,38 +46,14 @@ class XAdapter(BasePlatformAdapter):
         active_task_id: Any = None,
     ) -> DownloadResult:
         videos_dir = target_dir / "Videos"
-        init_archive_dir(videos_dir)
-        cookies_arg = auth_config.to_cli_args()
-        log_file = videos_dir / "lastrun.log"
-
-        def attempt_gd(cookies: list[str], silent: bool) -> tuple[int, str, str]:
-            return download_gd(
-                videos_dir, VIDEO_FILTER, cookies, target.original_url,
-                sleep_time="1" if silent else "5", silent=silent,
-                progress_obj=progress_obj, active_task_id=active_task_id
-            )
-
-        with ArchiveLock(videos_dir):
-            rc, failure_type, output = execute_with_intelligent_retry(
-                attempt_gd, cookies_arg, log_file, "gallery-dl (x videos)"
-            )
-
-            if rc != 0:
-                def attempt_yt(cookies: list[str], silent: bool) -> tuple[int, str, str]:
-                    return download_yt(
-                        videos_dir, cookies, target.original_url, silent=silent,
-                        progress_obj=progress_obj, active_task_id=active_task_id
-                    )
-                yt_rc, yt_failure, yt_output = execute_with_intelligent_retry(
-                    attempt_yt, cookies_arg, log_file, "yt-dlp (x videos)"
-                )
-                rc = yt_rc
-                failure_type = yt_failure
-                output = yt_output
-
-        if rc == 0:
-            return DownloadResult(status=DownloadResultStatus.SUCCESS)
-        return DownloadResult(status=DownloadResultStatus.FAILED, failure_type=failure_type, message=output[:200])
+        return self.manager.download(
+            target=target,
+            content_type="videos",
+            destination=videos_dir,
+            auth=auth_config,
+            progress_obj=progress_obj,
+            active_task_id=active_task_id,
+        )
 
     def download_stories(
         self,
