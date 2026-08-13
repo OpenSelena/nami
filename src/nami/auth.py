@@ -17,7 +17,7 @@ def validate_browser(browser: str) -> bool:
 
 @dataclass
 class AuthConfig:
-    mode: Literal["netscape", "browser", "instaloader_session", "none"]
+    mode: Literal["netscape", "browser", "none"]
     path: Path | None = None
     browser: str | None = None
     username: str | None = None
@@ -78,21 +78,6 @@ def resolve_authentication(
     browser_clean = browser.strip().lower() if validate_browser(browser) else "brave"
 
     if cookies_dir is not None:
-        # Check for Instaloader session file if instagram
-        if platform == "instagram":
-            # 1. Look for session file matching target_username explicitly
-            if target_username:
-                specific_session = cookies_dir / f"session-{target_username.lower()}"
-                if specific_session.exists():
-                    return AuthConfig(mode="instaloader_session", path=specific_session, username=target_username.lower())
-
-            # 2. Fall back to any available session file
-            session_files = list(cookies_dir.glob("session-*"))
-            if session_files:
-                session_path = session_files[0]
-                uname = session_path.name.replace("session-", "")
-                return AuthConfig(mode="instaloader_session", path=session_path, username=uname)
-
         cookie_file = cookies_dir / f"{platform}.com_cookies.txt"
         if cookie_file.exists() and validate_cookie(cookie_file):
             return AuthConfig(mode="netscape", path=cookie_file)

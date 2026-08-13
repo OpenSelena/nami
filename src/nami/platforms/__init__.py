@@ -33,16 +33,19 @@ class DownloadResult:
 
     def to_display_string(self) -> str:
         if self.status == DownloadResultStatus.SUCCESS:
-            if self.fallback_extractor:
-                return f"✓ ({self.fallback_extractor})"
-            elif self.extractor:
-                return f"✓ ({self.extractor})"
-            return "✓"
+            ext = f" ({self.fallback_extractor or self.extractor})" if (self.extractor or self.fallback_extractor) else ""
+            if self.items_downloaded > 0:
+                return f"✓ {self.items_downloaded} downloaded{ext}"
+            elif self.items_skipped > 0:
+                return f"✓ {self.items_skipped} archived{ext}"
+            return f"✓ Complete{ext}"
         elif self.status == DownloadResultStatus.UNSUPPORTED:
             return "N/A"
         elif self.status == DownloadResultStatus.SKIPPED:
             return "-"
         else:
+            if self.failure_type == FailureType.RATE_LIMIT:
+                return "⚠ Rate limited"
             reason = self.failure_type.value if self.failure_type else "failed"
             return f"✗ ({reason})"
 

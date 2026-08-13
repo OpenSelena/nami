@@ -8,17 +8,17 @@ from typing import Any
 from nami.archive import ArchiveLock, init_archive_dir
 from nami.auth import AuthConfig
 from nami.config import PHOTO_FILTER, VIDEO_FILTER
-from nami.downloader import download_gd, parse_output_counts
+from nami.downloader import download_gd, parse_gallery_dl_output
 from nami.extractors.base import BaseExtractor
 from nami.parser import ParsedTarget
 from nami.platforms import DownloadResult, DownloadResultStatus
 from nami.retry import execute_with_intelligent_retry
 
 SUPPORTED_TYPES = {
-    "instagram": {"profile", "post", "reel", "story", "highlight"},
-    "tiktok": {"profile", "post", "video"},
-    "facebook": {"profile", "post", "video"},
-    "x": {"profile", "post", "video"},
+    "instagram": {"profile", "post", "reel", "story", "highlight", "photos", "videos"},
+    "tiktok": {"profile", "post", "video", "photos", "videos"},
+    "facebook": {"profile", "post", "video", "photos", "videos"},
+    "x": {"profile", "post", "video", "photos", "videos"},
 }
 
 
@@ -67,7 +67,7 @@ class GalleryDlExtractor(BaseExtractor):
                 attempt, cookies_arg, log_file, f"gallery-dl ({target.platform})"
             )
 
-        downloaded, skipped = parse_output_counts(output)
+        downloaded, skipped = parse_gallery_dl_output(output)
 
         if rc == 0:
             return DownloadResult(

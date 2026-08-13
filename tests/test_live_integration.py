@@ -8,7 +8,6 @@ import os
 import pytest
 from nami.auth import AuthConfig
 from nami.extractors.gallery_dl import GalleryDlExtractor
-from nami.extractors.instaloader import InstaloaderExtractor
 from nami.extractors.yt_dlp import YtDlpExtractor
 from nami.parser import ParsedTarget
 from nami.platforms import DownloadResultStatus
@@ -19,12 +18,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_live_instaloader_public_post(tmp_path):
-    extractor = InstaloaderExtractor()
-    target = ParsedTarget("instagram", "instagram", "post", "https://www.instagram.com/p/C_123456789/", content_id="C_123456789")
+def test_live_gallery_dl_instagram_public_profile(tmp_path):
+    extractor = GalleryDlExtractor()
+    target = ParsedTarget("instagram", "instagram", "profile", "https://www.instagram.com/instagram/")
     auth = AuthConfig(mode="none")
     result = extractor.download(target, tmp_path, auth)
-    assert result.extractor == "instaloader"
+    assert result.extractor == "gallery-dl"
     assert result.status in (DownloadResultStatus.SUCCESS, DownloadResultStatus.FAILED)
 
 

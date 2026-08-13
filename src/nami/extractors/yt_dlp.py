@@ -7,7 +7,7 @@ from typing import Any
 
 from nami.archive import ArchiveLock, init_archive_dir
 from nami.auth import AuthConfig
-from nami.downloader import download_yt, parse_output_counts
+from nami.downloader import download_yt, parse_yt_dlp_output
 from nami.extractors.base import BaseExtractor
 from nami.parser import ParsedTarget
 from nami.platforms import DownloadResult, DownloadResultStatus
@@ -56,7 +56,7 @@ class YtDlpExtractor(BaseExtractor):
                 attempt, cookies_arg, log_file, f"yt-dlp ({target.platform})"
             )
 
-        downloaded, skipped = parse_output_counts(output)
+        downloaded, skipped = parse_yt_dlp_output(output)
 
         if rc == 0:
             return DownloadResult(

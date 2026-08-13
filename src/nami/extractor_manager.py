@@ -15,9 +15,6 @@ from nami.retry import FailureType
 logger = logging.getLogger(__name__)
 
 EXTRACTOR_CAPABILITIES: dict[str, dict[str, set[str]]] = {
-    "instaloader": {
-        "instagram": {"profile", "post", "reel", "story", "highlight", "photos", "videos"},
-    },
     "gallery-dl": {
         "instagram": {"profile", "post", "reel", "story", "highlight", "photos", "videos"},
         "tiktok": {"profile", "post", "video", "photos", "videos"},
@@ -34,17 +31,17 @@ EXTRACTOR_CAPABILITIES: dict[str, dict[str, set[str]]] = {
 
 EXTRACTION_PLANS: dict[str, dict[str, list[str]]] = {
     "instagram": {
-        "profile": ["gallery-dl", "instaloader"],
-        "photos": ["gallery-dl", "instaloader"],
-        "post": ["gallery-dl", "instaloader"],
-        "videos": ["gallery-dl", "yt-dlp", "instaloader"],
-        "video": ["gallery-dl", "yt-dlp", "instaloader"],
-        "reel": ["instaloader", "yt-dlp", "gallery-dl"],
-        "reels": ["instaloader", "yt-dlp", "gallery-dl"],
-        "story": ["instaloader", "gallery-dl"],
-        "stories": ["instaloader", "gallery-dl"],
-        "highlight": ["instaloader", "gallery-dl"],
-        "highlights": ["instaloader", "gallery-dl"],
+        "profile": ["gallery-dl"],
+        "photos": ["gallery-dl"],
+        "post": ["gallery-dl", "yt-dlp"],
+        "videos": ["gallery-dl", "yt-dlp"],
+        "video": ["gallery-dl", "yt-dlp"],
+        "reel": ["gallery-dl", "yt-dlp"],
+        "reels": ["gallery-dl", "yt-dlp"],
+        "story": ["gallery-dl"],
+        "stories": ["gallery-dl"],
+        "highlight": ["gallery-dl"],
+        "highlights": ["gallery-dl"],
     },
     "tiktok": {
         "photos": ["gallery-dl"],
@@ -78,7 +75,7 @@ class ExtractorManager:
         if not plan:
             # Fallback to default platform order
             if plat == "instagram":
-                plan = ["gallery-dl", "instaloader", "yt-dlp"]
+                plan = ["gallery-dl", "yt-dlp"]
             else:
                 plan = ["yt-dlp", "gallery-dl"]
         return plan

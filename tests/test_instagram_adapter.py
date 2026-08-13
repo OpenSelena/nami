@@ -11,7 +11,7 @@ class DummyManager:
     def download(self, target, content_type, destination, auth, progress_obj=None, active_task_id=None, context=None):
         return DownloadResult(
             status=DownloadResultStatus.SUCCESS,
-            extractor="instaloader",
+            extractor="gallery-dl",
             message=f"downloaded {content_type}"
         )
 

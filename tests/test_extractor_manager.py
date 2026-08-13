@@ -8,46 +8,42 @@ from nami.retry import FailureType
 
 
 def test_capability_registry_structure():
-    assert "instaloader" in EXTRACTOR_CAPABILITIES
     assert "gallery-dl" in EXTRACTOR_CAPABILITIES
     assert "yt-dlp" in EXTRACTOR_CAPABILITIES
+    assert "instaloader" not in EXTRACTOR_CAPABILITIES
 
-    # Instaloader only supports instagram
-    assert "instagram" in EXTRACTOR_CAPABILITIES["instaloader"]
-    assert "tiktok" not in EXTRACTOR_CAPABILITIES["instaloader"]
-
-    # TikTok does not support instaloader
-    assert "tiktok" in EXTRACTOR_CAPABILITIES["yt-dlp"]
+    # Capabilities verification
+    assert "instagram" in EXTRACTOR_CAPABILITIES["gallery-dl"]
     assert "tiktok" in EXTRACTOR_CAPABILITIES["gallery-dl"]
+    assert "tiktok" in EXTRACTOR_CAPABILITIES["yt-dlp"]
 
 
 def test_extractor_manager_plan_generation():
     manager = ExtractorManager()
 
     ig_profile_plan = manager.get_plan("instagram", "profile")
-    assert ig_profile_plan[0] == "gallery-dl"
+    assert ig_profile_plan == ["gallery-dl"]
 
     ig_photos_plan = manager.get_plan("instagram", "photos")
-    assert ig_photos_plan[0] == "gallery-dl"
+    assert ig_photos_plan == ["gallery-dl"]
 
     ig_story_plan = manager.get_plan("instagram", "story")
-    assert ig_story_plan[0] == "instaloader"
+    assert ig_story_plan == ["gallery-dl"]
 
     ig_highlight_plan = manager.get_plan("instagram", "highlight")
-    assert ig_highlight_plan[0] == "instaloader"
+    assert ig_highlight_plan == ["gallery-dl"]
 
     ig_video_plan = manager.get_plan("instagram", "videos")
-    assert ig_video_plan[0] == "gallery-dl"
+    assert ig_video_plan == ["gallery-dl", "yt-dlp"]
 
     tiktok_plan = manager.get_plan("tiktok", "videos")
-    assert "yt-dlp" in tiktok_plan
-    assert "instaloader" not in tiktok_plan
+    assert tiktok_plan == ["yt-dlp", "gallery-dl"]
 
     fb_plan = manager.get_plan("facebook", "videos")
-    assert "instaloader" not in fb_plan
+    assert fb_plan == ["yt-dlp", "gallery-dl"]
 
     x_plan = manager.get_plan("x", "videos")
-    assert "instaloader" not in x_plan
+    assert x_plan == ["yt-dlp", "gallery-dl"]
 
 
 def test_fallback_allowed_rules():
@@ -69,7 +65,7 @@ def test_fallback_allowed_rules():
 
 def test_extractor_manager_fallback_on_extractor_failure(tmp_path, monkeypatch):
     manager = ExtractorManager()
-    target = ParsedTarget("instagram", "testuser", "profile", "https://instagram.com/testuser")
+    target = ParsedTarget("instagram", "testuser", "videos", "https://instagram.com/testuser")
     auth = AuthConfig(mode="none")
 
     # Primary (gallery-dl) fails with EXTRACTOR failure
@@ -79,25 +75,25 @@ def test_extractor_manager_fallback_on_extractor_failure(tmp_path, monkeypatch):
         def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
             return DownloadResult(status=DownloadResultStatus.FAILED, extractor="gallery-dl", failure_type=FailureType.EXTRACTOR)
 
-    # Fallback (instaloader) succeeds
-    class MockInstaloaderSuccess:
-        name = "instaloader"
+    # Fallback (yt-dlp) succeeds
+    class MockYtDlpSuccess:
+        name = "yt-dlp"
         def supports(self, p, c): return True
         def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
-            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="instaloader")
+            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="yt-dlp")
 
     from nami.extractor_manager import EXTRACTORS
     monkeypatch.setitem(EXTRACTORS, "gallery-dl", MockGalleryDlFail())
-    monkeypatch.setitem(EXTRACTORS, "instaloader", MockInstaloaderSuccess())
+    monkeypatch.setitem(EXTRACTORS, "yt-dlp", MockYtDlpSuccess())
 
-    res = manager.download(target, "profile", tmp_path, auth)
+    res = manager.download(target, "videos", tmp_path, auth)
     assert res.status == DownloadResultStatus.SUCCESS
-    assert res.extractor == "instaloader"
+    assert res.extractor == "yt-dlp"
 
 
 def test_extractor_manager_no_fallback_on_unknown_failure(tmp_path, monkeypatch):
     manager = ExtractorManager()
-    target = ParsedTarget("instagram", "testuser", "profile", "https://instagram.com/testuser")
+    target = ParsedTarget("instagram", "testuser", "videos", "https://instagram.com/testuser")
     auth = AuthConfig(mode="none")
 
     # Primary (gallery-dl) fails with UNKNOWN failure
@@ -107,17 +103,17 @@ def test_extractor_manager_no_fallback_on_unknown_failure(tmp_path, monkeypatch)
         def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
             return DownloadResult(status=DownloadResultStatus.FAILED, extractor="gallery-dl", failure_type=FailureType.UNKNOWN)
 
-    class MockInstaloader:
-        name = "instaloader"
+    class MockYtDlp:
+        name = "yt-dlp"
         def supports(self, p, c): return True
         def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
-            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="instaloader")
+            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="yt-dlp")
 
     from nami.extractor_manager import EXTRACTORS
     monkeypatch.setitem(EXTRACTORS, "gallery-dl", MockGalleryDlUnknownFail())
-    monkeypatch.setitem(EXTRACTORS, "instaloader", MockInstaloader())
+    monkeypatch.setitem(EXTRACTORS, "yt-dlp", MockYtDlp())
 
-    res = manager.download(target, "profile", tmp_path, auth)
+    res = manager.download(target, "videos", tmp_path, auth)
     assert res.status == DownloadResultStatus.FAILED
     assert res.extractor == "gallery-dl"
     assert res.failure_type == FailureType.UNKNOWN
@@ -125,7 +121,7 @@ def test_extractor_manager_no_fallback_on_unknown_failure(tmp_path, monkeypatch)
 
 def test_extractor_manager_no_fallback_on_rate_limit(tmp_path, monkeypatch):
     manager = ExtractorManager()
-    target = ParsedTarget("instagram", "testuser", "profile", "https://instagram.com/testuser")
+    target = ParsedTarget("instagram", "testuser", "videos", "https://instagram.com/testuser")
     auth = AuthConfig(mode="none")
 
     # Primary (gallery-dl) fails with RATE_LIMIT
@@ -135,17 +131,17 @@ def test_extractor_manager_no_fallback_on_rate_limit(tmp_path, monkeypatch):
         def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
             return DownloadResult(status=DownloadResultStatus.FAILED, extractor="gallery-dl", failure_type=FailureType.RATE_LIMIT)
 
-    class MockInstaloader:
-        name = "instaloader"
+    class MockYtDlp:
+        name = "yt-dlp"
         def supports(self, p, c): return True
         def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
-            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="instaloader")
+            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="yt-dlp")
 
     from nami.extractor_manager import EXTRACTORS
     monkeypatch.setitem(EXTRACTORS, "gallery-dl", MockGalleryDlRateLimit())
-    monkeypatch.setitem(EXTRACTORS, "instaloader", MockInstaloader())
+    monkeypatch.setitem(EXTRACTORS, "yt-dlp", MockYtDlp())
 
-    res = manager.download(target, "profile", tmp_path, auth)
+    res = manager.download(target, "videos", tmp_path, auth)
     assert res.status == DownloadResultStatus.FAILED
     assert res.extractor == "gallery-dl"
     assert res.failure_type == FailureType.RATE_LIMIT

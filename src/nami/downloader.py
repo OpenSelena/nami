@@ -56,8 +56,8 @@ def looks_like_media_output_line(line: str) -> bool:
     return has_sep and ext in MEDIA_EXTS
 
 
-def parse_output_counts(output: str) -> tuple[int, int]:
-    """Parse output text to calculate (items_downloaded, items_skipped)."""
+def parse_gallery_dl_output(output: str) -> tuple[int, int]:
+    """Parse gallery-dl stdout/log output to return (downloaded, skipped)."""
     from nami.config import MEDIA_EXTS
     downloaded = 0
     skipped = 0
@@ -71,14 +71,37 @@ def parse_output_counts(output: str) -> tuple[int, int]:
             ext = os.path.splitext(candidate)[1].lower()
             if ext in MEDIA_EXTS or "/" in candidate or "\\" in candidate:
                 skipped += 1
-        elif "has already been downloaded" in line_stripped.lower() or "archive" in line_stripped.lower():
-            skipped += 1
         elif looks_like_media_output_line(line_stripped):
-            downloaded += 1
-        elif line_stripped.startswith("[download]") and ("100%" in line_stripped or "destination:" in line_stripped.lower()):
             downloaded += 1
 
     return downloaded, skipped
+
+
+def parse_yt_dlp_output(output: str) -> tuple[int, int]:
+    """Parse yt-dlp stdout/log output to return (downloaded, skipped)."""
+    downloaded = 0
+    skipped = 0
+
+    for line in output.splitlines():
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        lower_line = line_stripped.lower()
+        if "has already been downloaded" in lower_line or "archive" in lower_line:
+            skipped += 1
+        elif lower_line.startswith("[download]") and ("100%" in line_stripped or "destination:" in lower_line):
+            downloaded += 1
+        elif looks_like_media_output_line(line_stripped):
+            downloaded += 1
+
+    return downloaded, skipped
+
+
+def parse_output_counts(output: str) -> tuple[int, int]:
+    """Fallback generic output parser."""
+    g_down, g_skip = parse_gallery_dl_output(output)
+    y_down, y_skip = parse_yt_dlp_output(output)
+    return (max(g_down, y_down), max(g_skip, y_skip))
 
 
 def run_command(
