@@ -41,7 +41,7 @@ def parse_url(url: str, platform: str) -> ParsedTarget | None | str:
     try:
         parsed = urllib.parse.urlparse(url)
         domain = parsed.netloc.lower()
-        
+
         for prefix in ("www.", "m.", "mobile.", "vm.", "business."):
             if domain.startswith(prefix):
                 domain = domain[len(prefix):]
@@ -70,7 +70,7 @@ def parse_url(url: str, platform: str) -> ParsedTarget | None | str:
             return None
 
         first_part = path_parts[0].replace("@", "").split("?")[0].split("#")[0]
-        
+
         # Check specific routes
         if first_part.lower() == "stories" and len(path_parts) > 1:
             username = path_parts[1].replace("@", "").split("?")[0].split("#")[0]

@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from nami.archive import init_archive_dir, ArchiveLock
+from nami.archive import ArchiveLock, init_archive_dir
 from nami.auth import AuthConfig
 from nami.config import PHOTO_FILTER, VIDEO_FILTER
 from nami.downloader import download_gd, download_yt
 from nami.parser import ParsedTarget
 from nami.platforms import BasePlatformAdapter, DownloadResult, DownloadResultStatus
-from nami.retry import execute_with_intelligent_retry, FailureType
+from nami.retry import FailureType, execute_with_intelligent_retry
 
 
 class InstagramAdapter(BasePlatformAdapter):

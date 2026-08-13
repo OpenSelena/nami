@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from nami.archive import init_archive_dir, ArchiveLock
+from nami.archive import ArchiveLock, init_archive_dir
 from nami.auth import AuthConfig
 from nami.config import PHOTO_FILTER, VIDEO_FILTER
 from nami.downloader import download_gd, download_yt

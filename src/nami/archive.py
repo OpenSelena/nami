@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
 import time
 from pathlib import Path
 
@@ -23,7 +22,7 @@ class ArchiveLock:
             try:
                 # O_CREAT | O_EXCL ensures atomic creation
                 fd = os.open(self.lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(fd, f"PID:{os.getpid()}\n".encode("utf-8"))
+                os.write(fd, f"PID:{os.getpid()}\n".encode())
                 os.close(fd)
                 self.acquired = True
                 return True

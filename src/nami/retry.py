@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import time
 import random
+import time
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Any
 
 
 class FailureType(Enum):

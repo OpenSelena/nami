@@ -6,17 +6,18 @@ import os
 import sys
 
 try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.align import Align
-    from rich.text import Text
     from rich.box import ROUNDED
-    from rich.prompt import Prompt
-    from rich.table import Table
+    from rich.console import Console
     from rich.progress import (
-        Progress, SpinnerColumn, TextColumn, BarColumn,
-        TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+        TimeElapsedColumn,
     )
+    from rich.table import Table
 except ImportError:
     print("[FATAL] The 'rich' library is required to run Nami.")
     print("Please install it: pip install rich")

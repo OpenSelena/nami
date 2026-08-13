@@ -22,10 +22,10 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
 
-from nami.auth import resolve_authentication, validate_browser, SUPPORTED_BROWSERS
-from nami.config import config, PLATFORMS, PROFILE_FILES
+from nami.auth import SUPPORTED_BROWSERS, resolve_authentication, validate_browser
+from nami.config import PLATFORMS, config
 from nami.diagnostics import check_environment_health
-from nami.parser import parse_url, ParsedTarget
+from nami.parser import ParsedTarget, parse_url
 from nami.platforms import DownloadResult, DownloadResultStatus
 from nami.platforms.facebook import FacebookAdapter
 from nami.platforms.instagram import InstagramAdapter
@@ -47,7 +47,7 @@ def log_debug(context: str, exc: Exception) -> None:
     try:
         config.debug_log.parent.mkdir(parents=True, exist_ok=True)
         with open(config.debug_log, "a", encoding="utf-8") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {context}: {repr(exc)}\n")
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {context}: {exc!r}\n")
     except Exception:
         pass
 

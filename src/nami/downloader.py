@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-import sys
 import signal
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
-from nami.config import config, DEFAULT_TIMEOUT, UA
+from nami.config import DEFAULT_TIMEOUT, UA
 
 
 def kill_process_tree(proc: subprocess.Popen[str]) -> None:

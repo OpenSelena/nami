@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nami"
-version = "2.4.0"
+version = "2.4.1"
 description = "An open-source CLI media downloader for Instagram, TikTok, Facebook, and X"
 readme = "README.md"
 authors = [
@@ -41,3 +41,12 @@ nami = "nami.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+

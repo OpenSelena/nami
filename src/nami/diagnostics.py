@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-import sys
-import subprocess
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
+
+from typing import Any
+
 from nami.retry import FailureType, classify_failure
 
 
@@ -16,7 +19,7 @@ def diagnose_log(log_path: Path | str, tool_name: str) -> str:
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
         failure = classify_failure(1, content)
-        
+
         if failure == FailureType.AUTH:
             return f"[{tool_name}] AUTH failure - session/cookies invalid or not accepted."
         elif failure == FailureType.RATE_LIMIT:

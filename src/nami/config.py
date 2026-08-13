@@ -6,7 +6,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 CONFIG_DIR = Path.home() / ".nami"
 CONFIG_FILE = CONFIG_DIR / "nami_config.json"
