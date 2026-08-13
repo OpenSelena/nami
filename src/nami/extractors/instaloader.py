@@ -246,6 +246,6 @@ class InstaloaderExtractor(BaseExtractor):
                 return DownloadResult(
                     status=DownloadResultStatus.FAILED,
                     extractor=self.name,
-                    failure_type=FailureType.EXTRACTOR,
-                    message=f"Instaloader Error: {e}",
+                    failure_type=FailureType.UNKNOWN,
+                    message=f"Instaloader Exception ({type(e).__name__}): {e}",
                 )

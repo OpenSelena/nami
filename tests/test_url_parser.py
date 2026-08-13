@@ -25,6 +25,13 @@ def test_parse_instagram_stories_route():
     assert res.content_type == "story"
 
 
+def test_parse_instagram_highlights_route():
+    res = parse_url("https://instagram.com/stories/highlights/123456789/", "instagram")
+    assert isinstance(res, ParsedTarget)
+    assert res.content_type == "highlight"
+    assert res.content_id == "123456789"
+
+
 def test_parse_facebook_numeric_id():
     res = parse_url("https://www.facebook.com/profile.php?id=100064578912345", "facebook")
     assert isinstance(res, ParsedTarget)

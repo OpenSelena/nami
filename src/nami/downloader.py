@@ -56,6 +56,31 @@ def looks_like_media_output_line(line: str) -> bool:
     return has_sep and ext in MEDIA_EXTS
 
 
+def parse_output_counts(output: str) -> tuple[int, int]:
+    """Parse output text to calculate (items_downloaded, items_skipped)."""
+    from nami.config import MEDIA_EXTS
+    downloaded = 0
+    skipped = 0
+
+    for line in output.splitlines():
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        if line_stripped.startswith("#"):
+            candidate = line_stripped[1:].strip()
+            ext = os.path.splitext(candidate)[1].lower()
+            if ext in MEDIA_EXTS or "/" in candidate or "\\" in candidate:
+                skipped += 1
+        elif "has already been downloaded" in line_stripped.lower() or "archive" in line_stripped.lower():
+            skipped += 1
+        elif looks_like_media_output_line(line_stripped):
+            downloaded += 1
+        elif line_stripped.startswith("[download]") and ("100%" in line_stripped or "destination:" in line_stripped.lower()):
+            downloaded += 1
+
+    return downloaded, skipped
+
+
 def run_command(
     cmd: list[str],
     silent_log_path: str | Path | None = None,

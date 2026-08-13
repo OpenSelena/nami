@@ -45,34 +45,71 @@ def test_extractor_manager_plan_generation():
 def test_fallback_allowed_rules():
     manager = ExtractorManager()
 
+    # Non-fallback eligible failure classes
     assert not manager.is_fallback_allowed(FailureType.AUTH)
     assert not manager.is_fallback_allowed(FailureType.RATE_LIMIT)
     assert not manager.is_fallback_allowed(FailureType.NETWORK)
     assert not manager.is_fallback_allowed(FailureType.NOT_FOUND)
     assert not manager.is_fallback_allowed(FailureType.DEPENDENCY)
+    assert not manager.is_fallback_allowed(FailureType.UNKNOWN)
+    assert not manager.is_fallback_allowed(FailureType.TIMEOUT)
 
+    # Fallback eligible failure classes
     assert manager.is_fallback_allowed(FailureType.EXTRACTOR)
     assert manager.is_fallback_allowed(None)
 
 
-def test_extractor_manager_download_execution(tmp_path, monkeypatch):
+def test_extractor_manager_fallback_on_extractor_failure(tmp_path, monkeypatch):
     manager = ExtractorManager()
-    target = ParsedTarget("tiktok", "user", "videos", "https://tiktok.com/@user")
+    target = ParsedTarget("instagram", "testuser", "profile", "https://instagram.com/testuser")
     auth = AuthConfig(mode="none")
 
-    # Mock success from yt-dlp
-    class MockYtDlp:
-        name = "yt-dlp"
+    # Primary fails with EXTRACTOR failure
+    class MockInstaloaderFail:
+        name = "instaloader"
         def supports(self, p, c): return True
         def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
-            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="yt-dlp")
+            return DownloadResult(status=DownloadResultStatus.FAILED, extractor="instaloader", failure_type=FailureType.EXTRACTOR)
 
-    monkeypatch.setitem(
-        __import__("nami.extractor_manager", fromlist=["EXTRACTORS"]).EXTRACTORS,
-        "yt-dlp",
-        MockYtDlp()
-    )
+    # Fallback succeeds
+    class MockGalleryDlSuccess:
+        name = "gallery-dl"
+        def supports(self, p, c): return True
+        def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
+            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="gallery-dl")
 
-    res = manager.download(target, "videos", tmp_path, auth)
+    from nami.extractor_manager import EXTRACTORS
+    monkeypatch.setitem(EXTRACTORS, "instaloader", MockInstaloaderFail())
+    monkeypatch.setitem(EXTRACTORS, "gallery-dl", MockGalleryDlSuccess())
+
+    res = manager.download(target, "profile", tmp_path, auth)
     assert res.status == DownloadResultStatus.SUCCESS
-    assert res.extractor == "yt-dlp"
+    assert res.extractor == "gallery-dl"
+
+
+def test_extractor_manager_no_fallback_on_unknown_failure(tmp_path, monkeypatch):
+    manager = ExtractorManager()
+    target = ParsedTarget("instagram", "testuser", "profile", "https://instagram.com/testuser")
+    auth = AuthConfig(mode="none")
+
+    # Primary fails with UNKNOWN failure
+    class MockInstaloaderUnknownFail:
+        name = "instaloader"
+        def supports(self, p, c): return True
+        def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
+            return DownloadResult(status=DownloadResultStatus.FAILED, extractor="instaloader", failure_type=FailureType.UNKNOWN)
+
+    class MockGalleryDl:
+        name = "gallery-dl"
+        def supports(self, p, c): return True
+        def download(self, target, destination, auth, progress_obj=None, active_task_id=None, context=None):
+            return DownloadResult(status=DownloadResultStatus.SUCCESS, extractor="gallery-dl")
+
+    from nami.extractor_manager import EXTRACTORS
+    monkeypatch.setitem(EXTRACTORS, "instaloader", MockInstaloaderUnknownFail())
+    monkeypatch.setitem(EXTRACTORS, "gallery-dl", MockGalleryDl())
+
+    res = manager.download(target, "profile", tmp_path, auth)
+    assert res.status == DownloadResultStatus.FAILED
+    assert res.extractor == "instaloader"
+    assert res.failure_type == FailureType.UNKNOWN

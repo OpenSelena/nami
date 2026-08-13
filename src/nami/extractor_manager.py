@@ -86,7 +86,8 @@ class ExtractorManager:
     def is_fallback_allowed(self, failure_type: FailureType | None) -> bool:
         """
         Determines whether falling back to another engine is allowed.
-        Strictly disallowed for AUTH, RATE_LIMIT, NETWORK, NOT_FOUND, DEPENDENCY.
+        Strictly disallowed for AUTH, RATE_LIMIT, NETWORK, NOT_FOUND, DEPENDENCY, UNKNOWN, TIMEOUT.
+        Only EXTRACTOR and UNSUPPORTED allow fallback.
         """
         if failure_type in (
             FailureType.AUTH,
@@ -94,6 +95,8 @@ class ExtractorManager:
             FailureType.NETWORK,
             FailureType.NOT_FOUND,
             FailureType.DEPENDENCY,
+            FailureType.UNKNOWN,
+            FailureType.TIMEOUT,
         ):
             return False
         return True
