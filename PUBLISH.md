@@ -1,6 +1,6 @@
-# Publishing Nami to PyPI (Automated via GitHub Actions)
+# Publishing Nami to PyPI & GitHub Packages (Automated via GitHub Actions)
 
-Nami uses **GitHub Trusted Publishing** (OIDC) for safe, passwordless automated PyPI releases directly from GitHub Actions.
+Nami uses **GitHub Trusted Publishing** (OIDC) for PyPI releases and **GitHub Packages** (`pkg.github.com`) registry publishing directly from GitHub Actions.
 
 ---
 
