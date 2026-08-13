@@ -49,6 +49,7 @@ CONFIG_DIR = Path.home() / ".nami"
 CONFIG_FILE = CONFIG_DIR / "nami_config.json"
 PLATFORMS = ("instagram", "tiktok", "facebook", "x")
 PROFILE_FILES = tuple(f"{p}_profiles.txt" for p in PLATFORMS)
+COOKIE_FILES = tuple(f"{p}_cookies.txt" for p in PLATFORMS)
 
 
 def clear_screen() -> None:
@@ -280,6 +281,11 @@ def ensure_dirs() -> bool:
             path = PROFILES_DIR / name
             if not path.exists():
                 path.write_text("# One profile URL per line\n", encoding="utf-8")
+        for name in COOKIE_FILES:
+            path = COOKIES_DIR / name
+            alt_path = COOKIES_DIR / name.replace("_cookies.txt", ".com_cookies.txt")
+            if not path.exists() and not alt_path.exists():
+                path.write_text("# Netscape HTTP Cookie File\n# Paste your Netscape-formatted cookies here\n", encoding="utf-8")
         return True
     except OSError as e:
         console.print(
@@ -369,6 +375,11 @@ def run_setup() -> bool:
             path = profiles / name
             if not path.exists():
                 path.write_text("# One profile URL per line\n", encoding="utf-8")
+        for name in COOKIE_FILES:
+            path = cookies / name
+            alt_path = cookies / name.replace("_cookies.txt", ".com_cookies.txt")
+            if not path.exists() and not alt_path.exists():
+                path.write_text("# Netscape HTTP Cookie File\n# Paste your Netscape-formatted cookies here\n", encoding="utf-8")
     except OSError as e:
         console.print(f"[{C['error']}]Failed: {e}[/{C['error']}]")
         input("\nPress Enter...")
@@ -774,14 +785,31 @@ def get_cookies_arg(platform):
         return []
 
     # Prefer explicit Netscape cookie file for every platform (including TikTok)
-    cookie_file = COOKIES_DIR / f"{platform}.com_cookies.txt"
-    if cookie_file.exists():
-        if validate_cookie(cookie_file):
-            return ["--cookies", str(cookie_file)]
-        console.print(
-            f" [{C['warning']}][WARN] Cookie file {cookie_file.name} failed "
-            f"validation, continuing without cookies.[/{C['warning']}]"
-        )
+    candidates = [
+        COOKIES_DIR / f"{platform}_cookies.txt",
+        COOKIES_DIR / f"{platform}.com_cookies.txt",
+    ]
+    if platform == "x":
+        candidates.extend([
+            COOKIES_DIR / "twitter_cookies.txt",
+            COOKIES_DIR / "twitter.com_cookies.txt",
+        ])
+
+    for cookie_file in candidates:
+        if cookie_file.exists():
+            if validate_cookie(cookie_file):
+                return ["--cookies", str(cookie_file)]
+            try:
+                with open(cookie_file, "r", encoding="utf-8", errors="ignore") as f:
+                    raw = f.read()
+                has_entries = any(l.strip() and not l.strip().startswith("#") for l in raw.splitlines())
+                if has_entries:
+                    console.print(
+                        f" [{C['warning']}][WARN] Cookie file {cookie_file.name} failed "
+                        f"validation, continuing without cookies.[/{C['warning']}]"
+                    )
+            except Exception:
+                pass
 
     # Fallback for TikTok: browser cookies
     if platform == "tiktok":
