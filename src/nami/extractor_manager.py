@@ -34,15 +34,15 @@ EXTRACTOR_CAPABILITIES: dict[str, dict[str, set[str]]] = {
 
 EXTRACTION_PLANS: dict[str, dict[str, list[str]]] = {
     "instagram": {
-        "profile": ["instaloader", "gallery-dl"],
-        "photos": ["instaloader", "gallery-dl"],
-        "post": ["instaloader", "gallery-dl"],
-        "videos": ["instaloader", "yt-dlp", "gallery-dl"],
-        "video": ["instaloader", "yt-dlp", "gallery-dl"],
-        "reel": ["instaloader", "yt-dlp"],
-        "reels": ["instaloader", "yt-dlp"],
-        "story": ["instaloader"],
-        "stories": ["instaloader"],
+        "profile": ["gallery-dl", "instaloader"],
+        "photos": ["gallery-dl", "instaloader"],
+        "post": ["gallery-dl", "instaloader"],
+        "videos": ["gallery-dl", "yt-dlp", "instaloader"],
+        "video": ["gallery-dl", "yt-dlp", "instaloader"],
+        "reel": ["instaloader", "yt-dlp", "gallery-dl"],
+        "reels": ["instaloader", "yt-dlp", "gallery-dl"],
+        "story": ["instaloader", "gallery-dl"],
+        "stories": ["instaloader", "gallery-dl"],
         "highlight": ["instaloader", "gallery-dl"],
         "highlights": ["instaloader", "gallery-dl"],
     },
@@ -78,7 +78,7 @@ class ExtractorManager:
         if not plan:
             # Fallback to default platform order
             if plat == "instagram":
-                plan = ["instaloader", "gallery-dl", "yt-dlp"]
+                plan = ["gallery-dl", "instaloader", "yt-dlp"]
             else:
                 plan = ["yt-dlp", "gallery-dl"]
         return plan

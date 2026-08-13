@@ -31,6 +31,7 @@ from nami.platforms.facebook import FacebookAdapter
 from nami.platforms.instagram import InstagramAdapter
 from nami.platforms.tiktok import TikTokAdapter
 from nami.platforms.x import XAdapter
+from nami.retry import FailureType
 from nami.ui import C, clear_screen, console, make_progress, print_summary_table
 
 ADAPTERS = {
@@ -341,7 +342,7 @@ def run_downloads(choice: str) -> None:
                 )
 
                 adapter = ADAPTERS[plat]
-                auth_config = resolve_authentication(plat, config.cookies_dir, config.browser)
+                auth_config = resolve_authentication(plat, config.cookies_dir, config.browser, target_username=target.username)
                 target_dir = config.base_dir / plat / target_name
 
                 photos_res = DownloadResult(status=DownloadResultStatus.SKIPPED)
@@ -352,12 +353,28 @@ def run_downloads(choice: str) -> None:
                 # Execute requested download modes
                 if choice in ("1", "5", "7"):
                     photos_res = adapter.download_photos(target_dir, auth_config, target, progress, active_task)
-                if choice in ("2", "5", "7"):
+                if choice in ("2", "5", "7") and photos_res.failure_type != FailureType.RATE_LIMIT:
                     videos_res = adapter.download_videos(target_dir, auth_config, target, progress, active_task)
-                if choice in ("3", "6", "7"):
+                if choice in ("3", "6", "7") and photos_res.failure_type != FailureType.RATE_LIMIT and videos_res.failure_type != FailureType.RATE_LIMIT:
                     stories_res = adapter.download_stories(target_dir, auth_config, target, progress, active_task)
-                if choice in ("4", "6", "7"):
+                if choice in ("4", "6", "7") and photos_res.failure_type != FailureType.RATE_LIMIT and videos_res.failure_type != FailureType.RATE_LIMIT and stories_res.failure_type != FailureType.RATE_LIMIT:
                     highlights_res = adapter.download_highlights(target_dir, auth_config, target, progress, active_task)
+
+                rate_limited_res = next((r for r in (photos_res, videos_res, stories_res, highlights_res) if r.failure_type == FailureType.RATE_LIMIT), None)
+                if rate_limited_res is not None:
+                    extractor_name = rate_limited_res.extractor or "extractor"
+                    progress.update(
+                        active_task,
+                        status=f"[{C['error']}]Rate Limited ({extractor_name})[/{C['error']}]"
+                    )
+                    progress.console.print(Panel(
+                        f"[{C['error']}]{plat.upper()}: {target_name}[/{C['error']}]\n"
+                        f"[{C['warning']}]Rate limited by platform ({extractor_name}).[/{C['warning']}]\n"
+                        f"[{C['secondary']}]Operation halted to protect IP & account. No automatic fallback.[/{C['secondary']}]",
+                        border_style="yellow",
+                        title=f"[{C['warning']}]Rate Limit Encountered[/{C['warning']}]",
+                        expand=False
+                    ))
 
                 summary_records.append({
                     "platform": plat,

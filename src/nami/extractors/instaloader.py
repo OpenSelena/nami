@@ -30,6 +30,8 @@ class InstaloaderExtractor(BaseExtractor):
         import instaloader
 
         L = instaloader.Instaloader(
+            sleep=False,
+            max_connection_attempts=1,
             dirname_pattern=str(destination),
             filename_pattern="{date_utc}_UTC",
             download_videos=True,

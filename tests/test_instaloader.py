@@ -37,3 +37,18 @@ def test_instaloader_exception_mapping(tmp_path, monkeypatch):
     res = extractor.download(target, tmp_path, auth)
     assert res.status == DownloadResultStatus.FAILED
     assert res.failure_type == FailureType.AUTH
+
+
+def test_instaloader_too_many_requests_mapping(tmp_path, monkeypatch):
+    extractor = InstaloaderExtractor()
+    target = ParsedTarget("instagram", "user", "profile", "https://instagram.com/user")
+    auth = AuthConfig(mode="none")
+
+    def mock_init(*args, **kwargs):
+        import instaloader.exceptions
+        raise instaloader.exceptions.TooManyRequestsException("HTTP 429 Too Many Requests")
+
+    monkeypatch.setattr(extractor, "_init_instaloader", mock_init)
+    res = extractor.download(target, tmp_path, auth)
+    assert res.status == DownloadResultStatus.FAILED
+    assert res.failure_type == FailureType.RATE_LIMIT
