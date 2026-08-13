@@ -35,11 +35,8 @@ Now that Trusted Publishing is configured:
 
 When you are ready to publish a new release:
 
-1. **Bump Version Numbers**:
-   Update the version string in:
-   - `pyproject.toml` (`version = "X.Y.Z"`)
-   - `src/nami/__init__.py` (`__version__ = "X.Y.Z"`)
-   - `src/nami/cli.py` (`__version__ = "X.Y.Z"`)
+1. **Bump Version Number**:
+   Update the version string in `pyproject.toml` (`version = "X.Y.Z"`). Everything else in Nami automatically derives from `pyproject.toml` via `importlib.metadata`.
 
 2. **Commit & Push to GitHub**:
    ```bash
