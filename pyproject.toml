@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nami"
-version = "2.3.9"
+version = "3.0.1"
 description = "An open-source CLI media downloader for Instagram, TikTok, Facebook, and X"
 readme = "README.md"
 authors = [
