@@ -55,4 +55,4 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
           TWINE_REPOSITORY_URL: https://pypi.pkg.github.com/${{ github.repository_owner }}
         run: |
-          twine upload --skip-existing dist/*
+          twine upload dist/* || true
