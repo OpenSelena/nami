@@ -3,40 +3,162 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  publish:
-    name: Build & Publish Release
+  validate:
+    name: Validate release
     runs-on: ubuntu-latest
-    environment: pypi
+    outputs:
+      package-version: ${{ steps.version.outputs.package-version }}
     steps:
-      - name: Checkout repository
+      - name: Checkout release tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Validate release tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must be stable SemVer in the form vX.Y.Z: ${tag}" >&2
+            exit 1
+          fi
+          if [[ "$(git cat-file -t "refs/tags/${tag}")" != "tag" ]]; then
+            echo "Release tag must be an annotated tag: ${tag}" >&2
+            exit 1
+          fi
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          release_commit="${{ github.event.release.target_commitish }}"
+          if git rev-parse --verify --quiet "${release_commit}^{commit}" >/dev/null; then
+            resolved_release_commit="$(git rev-parse "${release_commit}^{commit}")"
+            if [[ "${tag_commit}" != "${resolved_release_commit}" ]]; then
+              echo "Release target does not match annotated tag commit" >&2
+              exit 1
+            fi
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "${tag_commit}" origin/main; then
+            echo "Release tag commit must be on origin/main" >&2
+            exit 1
+          fi
+
+      - name: Validate project version
+        id: version
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected = tag.removeprefix("v")
+          project = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          actual = project["project"]["version"]
+          if actual != expected:
+              raise SystemExit(f"pyproject version {actual!r} does not match release tag {tag!r}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"package-version={actual}\n")
+          print(actual)
+          PY
+
+  build:
+    name: Build release artifacts
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Set up Python
-        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
+          cache: pip
 
-      - name: Install build & validation tools
+      - name: Install build tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build twine check-wheel-contents
+          python -m pip install --upgrade build twine check-wheel-contents
 
-      - name: Build package
+      - name: Build distributions
         run: python -m build
 
-      - name: Validate distribution packages
+      - name: Check distributions
         run: |
-          twine check dist/*
+          python -m twine check dist/*
           check-wheel-contents dist/*.whl
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
+      - name: Upload distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          skip-existing: true
+          name: nami-${{ needs.validate.outputs.package-version }}-dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke-install:
+    name: Smoke install artifacts
+    runs-on: ${{ matrix.os }}
+    needs: [validate, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nami-${{ needs.validate.outputs.package-version }}-dist
+          path: dist
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install wheel and smoke test
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.whl
+          python -m pip check
+          python - <<'PY'
+          import importlib.metadata
+          import nami
+
+          expected = "${{ needs.validate.outputs.package-version }}"
+          assert nami.__version__ == expected, (nami.__version__, expected)
+          assert importlib.metadata.version("nami") == expected
+          print(f"nami {expected}")
+          PY
+
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [validate, build, smoke-install]
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nami-${{ needs.validate.outputs.package-version }}-dist
+          path: dist
+
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2 / release-v1

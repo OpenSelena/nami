@@ -1,95 +1,74 @@
-# Publishing Nami to PyPI (Automated via GitHub Actions)
+# Publishing Nami
 
-Nami uses **GitHub Trusted Publishing** (OIDC) for safe, passwordless automated PyPI releases directly from GitHub Actions.
+Nami publishes to PyPI through GitHub Actions Trusted Publishing (OIDC). Releases must be built by GitHub from a validated annotated tag on `main`; do not upload with local API tokens.
 
----
+## One-time PyPI and GitHub setup
 
-## 1. Initial One-Time Setup
+1. In GitHub, create an environment named `pypi` under **Settings → Environments**.
+2. In PyPI, open the `nami` project publishing settings.
+3. Add a GitHub trusted publisher with:
+   - Owner: `OpenSelena`
+   - Repository: `nami`
+   - Workflow name: `publish.yml`
+   - Environment name: `pypi`
+4. Revoke old PyPI upload tokens used for this project.
+5. Protect the `pypi` environment with appropriate reviewers if desired.
 
-### A. Configure GitHub Environment
-1. Go to your GitHub repository: **Settings → Environments**.
-2. Click **New environment**.
-3. Name it: `pypi`.
-4. Click **Configure environment** and save.
+## Release checklist
 
-### B. Configure PyPI Trusted Publisher
-1. Log in to [PyPI Publishing Management](https://pypi.org/manage/project/nami/publishing/).
-2. Under **GitHub Actions**, click **Add a new publisher**.
-3. Fill in the required details:
-   - **PyPI Project Name**: `nami`
-   - **Owner**: `OpenSelena`
-   - **Repository name**: `nami`
-   - **Workflow name**: `publish.yml`
-   - **Environment name**: `pypi`
-4. Click **Add publisher**.
-
-### C. Revoke Legacy API Tokens
-Now that Trusted Publishing is configured:
-1. Go to [PyPI Account Settings](https://pypi.org/manage/account/).
-2. Scroll to **API tokens**.
-3. Revoke any legacy tokens used for previous manual uploads.
-
----
-
-## 2. Release Procedure
-
-When you are ready to publish a new release:
-
-### 1. Pre-flight Quality & Validation Checks
-Run all local release-grade checks before committing:
+Use a fresh checkout or a clean working tree.
 
 ```bash
-# Run test suite
-pytest
-
-# Run code style & formatting checks
-ruff check src tests
-ruff format --check src tests
-
-# Build distribution packages
-python -m build
-
-# Validate package distribution artifacts
-twine check dist/*
-check-wheel-contents dist/*.whl
+git --no-pager status --short
 ```
 
-### 2. Update Version Number
-Update the single source of truth version string in `pyproject.toml`:
-```toml
-[project]
-name = "nami"
-version = "X.Y.Z"
-```
+1. Update the version in `pyproject.toml`.
+2. Update `CHANGELOG.md` by moving the release from `Unreleased` to the release date.
+3. Run the local validation suite:
 
-*(Note: `src/nami/__init__.py` dynamically resolves the installed distribution version using standard `importlib.metadata`).*
+   ```bash
+   PYTHONPATH=src python -m pytest -q
+   python -m ruff check src tests
+   python -m ruff format --check src tests
+   rm -rf dist build .audit-dist
+   python -m build
+   python -m twine check dist/*
+   check-wheel-contents dist/*.whl
+   git --no-pager diff --check
+   ```
 
-### 3. Commit & Push to GitHub
-```bash
-git add .
-git commit -m "chore(release): bump version to X.Y.Z"
-git push origin main
-```
+4. Review changed files explicitly. Avoid `git add .`; stage only intentional files, for example:
 
-### 4. Create & Publish GitHub Release
-- Go to your repository on GitHub: **Releases → Draft a new release**.
-- Create a new tag (e.g., `vX.Y.Z`).
-- Title your release (e.g., `vX.Y.Z - Release Title`) and describe highlights.
-- Click **Publish release**.
+   ```bash
+   git add pyproject.toml CHANGELOG.md README.md PUBLISH.md SECURITY.md src tests .github
+   ```
 
-### 5. Automated Deployment
-GitHub Actions will automatically trigger `.github/workflows/publish.yml`, verify artifacts, build distributions, and publish securely to PyPI via OIDC Trusted Publishing without needing stored secrets or passwords.
+5. Commit and push to `main`.
+6. Create an annotated stable SemVer tag from `main`:
 
----
+   ```bash
+   git tag -a vX.Y.Z -m "Release vX.Y.Z"
+   git push origin main
+   git push origin vX.Y.Z
+   ```
 
-## 3. Manual Fallback (Optional Local Upload)
+7. Draft and publish a GitHub Release using the existing tag.
 
-If you ever need to publish manually from your local development environment:
+The `publish.yml` workflow validates that the tag:
 
-```bash
-python -m pip install --upgrade build twine check-wheel-contents
-python -m build
-twine check dist/*
-twine upload dist/*
-```
-*(When prompted, set username to `__token__` and password to an active PyPI API token).*
+- is a stable `vX.Y.Z` tag
+- is annotated
+- points at the release target commit when that target can be resolved
+- is an ancestor of `origin/main`
+- matches the version in `pyproject.toml`
+
+It then builds once, validates metadata and wheel contents, smoke-installs the artifact on Ubuntu and Windows, and publishes with OIDC from the protected `pypi` environment.
+
+## What not to do
+
+- Do not use `git add .` without reviewing the worktree.
+- Do not publish from a dirty local checkout.
+- Do not use a PyPI API token fallback.
+- Do not set `skip-existing`; repeated releases should fail loudly.
+- Do not publish from lightweight tags or non-`main` commits.
+- Do not rebuild locally and upload different artifacts from the GitHub release artifacts.

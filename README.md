@@ -1,245 +1,273 @@
-<div align="center">
+# Nami
 
-# 🌊 Nami
+Nami is an open-source Python CLI for downloading media from Instagram, TikTok, Facebook, and X. It wraps `gallery-dl` and `yt-dlp` with safer target parsing, per-media archives, retry/fallback logic, workspace configuration, diagnostics, and an optional Rich-powered interactive UI.
 
-### *An open-source CLI media downloader for Instagram, TikTok, Facebook, and X*
+> Use Nami only for content you are allowed to access and download. Platform availability can change when upstream sites or extractors change.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/OpenSelena/nami/ci.yml?branch=main&style=for-the-badge&logo=github&label=CI)](https://github.com/OpenSelena/nami/actions/workflows/ci.yml)
-[![PyPI Version](https://img.shields.io/pypi/v/nami.svg?color=D97757&style=for-the-badge&logo=pypi&logoColor=white)](https://pypi.org/project/nami/)
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://pypi.org/project/nami/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-2e7d32.svg?style=for-the-badge)](LICENSE)
+## Highlights
 
-<p align="center">
-  <b>Nami</b> is a high-performance, modular CLI and interactive media downloader for Instagram, TikTok, Facebook, and X (Twitter). Powered by <b>gallery-dl</b> and <b>yt-dlp</b> engines with a modern <b>Rich terminal UI</b>, Nami provides dual-engine fallback, anti-duplicate archiving, automated cookie management, health doctor diagnostics, and machine-readable JSON workflows.
-</p>
+- Interactive no-argument menu for guided setup and downloads.
+- Noninteractive CLI for scripts, CI, and automation.
+- Downloads explicit URLs or profile lists from a workspace.
+- Supports photos, videos, stories, and highlights where upstream extractors support them.
+- Uses per-target archives to avoid duplicate downloads without deleting archives implicitly.
+- Validates target names and proves output paths stay inside the configured workspace.
+- Supports Netscape cookie files and TikTok browser-cookie fallback.
+- Classifies auth, cookie, rate-limit, network, dependency, not-found, extractor, timeout, and unknown failures.
+- Provides JSON output for `download`, `doctor`, `setup`, `config`, and archive reset workflows.
+- Includes a read-only `doctor` command for local diagnostics.
 
-[Installation](#installation) • [Quickstart](#quickstart) • [CLI Commands](#cli-commands-reference) • [Platform Matrix](#supported-platforms) • [Configuration](#configuration--environment-variables) • [Development](#development--testing)
+## Platform support
 
-</div>
+| Platform | Photos/posts | Videos/reels | Stories | Highlights | Authentication |
+| --- | :---: | :---: | :---: | :---: | --- |
+| Instagram | Yes | Yes | Yes | Yes | Optional Netscape cookies |
+| TikTok | Limited by upstream extractor | Yes | No | No | Netscape cookies or configured browser cookies |
+| Facebook | Limited by upstream extractor | Yes | No | No | Optional Netscape cookies |
+| X / Twitter | Limited by upstream extractor | Yes | No | No | Optional Netscape cookies |
 
----
-
-## Features
-
-- **Multi-Platform Batch Downloads**: Extract high-resolution photos, videos, reels, posts, stories, and highlights.
-- **Dual-Engine Architecture**: Intelligently routes tasks between `gallery-dl` and `yt-dlp` with automatic fallback on extractor failures.
-- **Interactive & Headless Modes**: Run interactively with an intuitive terminal UI or integrate into headless pipelines with dedicated CLI subcommands and `--json` output.
-- **Smart Anti-Duplicate Archiving**: Maintains per-target `archive.txt` records to avoid redundant re-downloads, with safe `archive reset` management.
-- **Flexible Authentication**: Supports Netscape cookie files, anonymous fallbacks, and direct browser cookie extraction (`--cookies-from-browser`).
-- **Resilient Retry Policy**: Exponential jittered backoff for transient network errors, immediate rate-limit handling, and process isolation.
-- **Built-in Doctor**: Run `nami doctor` to verify local binaries, browser installations, cookie permissions, and workspace health.
-
----
-
-## Supported Platforms
-
-| Platform | Photos | Videos / Reels | Stories | Highlights | Auth Support | Primary Engine |
-| :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| **Instagram** | Included | Included | Included | Included | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
-| **TikTok** | Included | Included | N/A | N/A | Browser DB / Netscape Cookie | `yt-dlp` / `gallery-dl` |
-| **Facebook** | Included | Included | N/A | N/A | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
-| **X (Twitter)** | Included | Included | N/A | N/A | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
-
----
+Unsupported combinations are reported as unsupported operations instead of being silently treated as successful downloads.
 
 ## Installation
 
-Install `nami` via `pip`:
-
 ```bash
-pip install nami
+python -m pip install nami
 ```
 
-*Dependencies (`rich`, `gallery-dl`, `yt-dlp`) are automatically installed.*
-
-To upgrade to the latest version:
+Upgrade an existing installation:
 
 ```bash
-pip install -U nami
+python -m pip install --upgrade nami
 ```
 
----
+Nami requires Python 3.10 or newer. Runtime dependencies are installed automatically: `rich`, `gallery-dl`, and `yt-dlp`.
 
-## Quickstart
+## Quick start
 
-### 1. Interactive Mode
-Run `nami` without arguments to launch the interactive terminal UI:
+### Interactive mode
+
+Run Nami without arguments:
 
 ```bash
 nami
 ```
 
-```text
-┌──────────────────────── Nami ────────────────────────┐
-│ What do you want to download?                        │
-│                                                      │
-│ 1  Photos only                                       │
-│ 2  Videos only                                       │
-│ 3  Stories only                                      │
-│ 4  Highlights only                                   │
-│ 5  Photos + Videos                                   │
-│ 6  Stories + Highlights                              │
-│ 7  All                                               │
-│ 8  Settings                                          │
-│ 0  Exit                                              │
-└──────────────────────────────────────────────────────┘
+The interactive UI guides you through workspace setup, settings, profile-file downloads, and media selection. Nami no longer creates a workspace as a hidden import-time side effect; setup is explicit through the interactive prompt or the `setup` command.
+
+### Noninteractive setup
+
+Create a workspace under a chosen root directory:
+
+```bash
+nami setup --root .
 ```
 
-On first launch, Nami guides you through workspace initialization.
-
-### 2. Workspace Layout
-Nami organizes downloads, cookie files, and target profile lists cleanly:
+This creates:
 
 ```text
 Nami/
-├── downloads/      # Extracted media organized by platform, account & kind
-├── cookies/        # Optional Netscape cookie files (*_cookies.txt)
-└── profiles/       # Target profile URLs (*_profiles.txt)
+├── downloads/
+├── cookies/
+└── profiles/
+    ├── facebook_profiles.txt
+    ├── instagram_profiles.txt
+    ├── tiktok_profiles.txt
+    └── x_profiles.txt
 ```
 
----
-
-## CLI Commands Reference
-
-Nami provides a full suite of scriptable subcommands for headless and automated pipelines:
-
-### `nami setup`
-Initialize a Nami workspace directory structure and configuration:
+Create optional cookie templates too:
 
 ```bash
-# Initialize workspace under current directory
-nami setup --root .
-
-# Initialize with template cookie files
-nami setup --root /path/to/workspace --cookie-templates
-
-# Output JSON report
-nami setup --root . --json
+nami setup --root . --cookie-templates
 ```
 
-### `nami download`
-Download specific target URLs or batch profiles:
+### Download explicit URLs
 
 ```bash
-# Download direct URLs
-nami download https://www.instagram.com/p/DAEXAMPLE123/ https://x.com/OpenAI/status/123456
+nami download https://www.instagram.com/example/ --media photos,videos
+```
 
-# Batch download all configured profile files
-nami download --profiles
+Multiple URLs are supported:
 
-# Filter by platform and specific media kinds
+```bash
+nami download URL1 URL2 URL3 --media all
+```
+
+Force platform inference when a URL is ambiguous:
+
+```bash
+nami download https://x.com/example --platform x --media videos
+```
+
+### Download from profile files
+
+Add one profile URL per line in the appropriate file under `Nami/profiles/`, then run:
+
+```bash
+nami download --profiles --media photos,videos
+```
+
+Limit profile loading to one platform:
+
+```bash
 nami download --profiles --platform instagram --media stories,highlights
-nami download https://www.tiktok.com/@creator --media videos
-
-# Machine-readable JSON output
-nami download --profiles --json
 ```
 
-*Media kinds options:* `photos`, `videos`, `stories`, `highlights`, `all` (or comma-separated list).
+### JSON output
 
-### `nami doctor`
-Inspect system health, engine availability, browser installations, and workspace configuration:
+Use `--json` for machine-readable output:
 
 ```bash
-nami doctor
+nami download --profiles --media all --json
 nami doctor --json
+nami config show --json
 ```
 
-### `nami config`
-Inspect and update persistent configuration settings:
+## CLI reference
+
+```text
+nami setup --root PATH [--cookie-templates] [--json]
+nami download [URL ...] [--profiles] [--platform instagram|tiktok|facebook|x] [--media KINDS] [--json]
+nami doctor [--json]
+nami config show|get|set|unset ... [--json]
+nami archive reset (--all | selectors...) [--dry-run] [--yes] [--delete] [--json]
+```
+
+Media kinds are `photos`, `videos`, `stories`, `highlights`, or `all`. Comma-separated values are accepted, for example `photos,videos`.
+
+## Configuration
+
+Nami loads configuration in this order:
+
+1. Environment variables
+2. `~/.nami/nami_config.json`
+3. Defaults based on the current user's home directory
+
+The config file is written atomically and avoids world-readable permissions where the platform supports it.
+
+### Config commands
 
 ```bash
-# Show all active settings
 nami config show
-
-# Get a specific setting value
-nami config get browser
 nami config get base_dir
-
-# Set a setting value
-nami config set browser chrome
-nami config set timeout_seconds 600
-
-# Reset a setting to its default/derived value
+nami config set browser firefox
 nami config unset browser
 ```
 
-*Configurable keys:* `base_dir`, `cookies_dir`, `profiles_dir`, `browser`, `user_agent`, `timeout_seconds`.
+Supported keys:
 
-### `nami archive reset`
-Safely manage download tracking archives to enable re-downloading media:
+| Key | Environment variable | Description |
+| --- | --- | --- |
+| `base_dir` | `NAMI_BASE_DIR` | Download output directory |
+| `cookies_dir` | `NAMI_COOKIES_DIR` | Netscape cookie file directory |
+| `profiles_dir` | `NAMI_PROFILES_DIR` | Profile text-file directory |
+| `browser` | `NAMI_BROWSER` | Browser for TikTok browser-cookie fallback (`brave`, `chrome`, `edge`, `firefox`) |
+| `user_agent` | `NAMI_USER_AGENT` | User-Agent sent to extractors |
+| `timeout_seconds` | `NAMI_TIMEOUT_SECONDS` or `NAMI_TIMEOUT` | Per-attempt subprocess timeout |
+
+## Authentication and cookies
+
+Place Netscape-format cookie files in the configured cookie directory. Nami validates that files contain at least one real seven-column Netscape cookie row; placeholder files and headers alone are rejected.
+
+Common cookie candidate names include platform-specific files such as:
+
+```text
+instagram_cookies.txt
+tiktok_cookies.txt
+facebook_cookies.txt
+x_cookies.txt
+```
+
+TikTok can fall back to browser cookie extraction when no valid cookie file is available. If the configured browser is running, its database may be locked; `nami doctor` reports this as a warning.
+
+## Archives
+
+Each target/media operation uses an archive file to avoid duplicate downloads. Archives are never deleted implicitly.
+
+Preview archive reset actions:
 
 ```bash
-# Preview archives that would be reset
-nami archive reset --platform instagram --dry-run
+nami archive reset --all --dry-run
+```
 
-# Back up archives for a specific profile (creates timestamped .bak)
-nami archive reset --platform instagram --target nasa --yes
+Back up matching archives after confirmation:
 
-# Reset all archives permanently
+```bash
+nami archive reset --platform instagram --target example --yes
+```
+
+Permanently delete matching archives only when intentional:
+
+```bash
 nami archive reset --all --delete --yes
 ```
 
----
+Without `--yes`, archive reset reports a dry run only.
 
-## Authentication & Cookies
+## Diagnostics
 
-To access private content, high-resolution stories, or avoid login walls:
-
-1. **Netscape Cookie Files**: Place cookie text files inside your configured `cookies_dir`:
-   - `instagram.com_cookies.txt` (or `instagram_cookies.txt`)
-   - `facebook.com_cookies.txt` (or `facebook_cookies.txt`)
-   - `x.com_cookies.txt` (or `x_cookies.txt`, `twitter.com_cookies.txt`)
-   - `tiktok.com_cookies.txt` (or `tiktok_cookies.txt`)
-2. **Browser Extraction**: Set `browser` (`brave`, `chrome`, `edge`, `firefox`) via `nami config set browser <name>` or `NAMI_BROWSER` environment variable.
-
----
-
-## Configuration & Environment Variables
-
-Settings are saved in `~/.nami/nami_config.json`. You can override defaults using environment variables:
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `NAMI_BASE_DIR` | Custom output downloads directory path | `~/Nami/downloads` |
-| `NAMI_COOKIES_DIR` | Custom Netscape cookie directory path | `~/Nami/cookies` |
-| `NAMI_PROFILES_DIR` | Custom profile text files directory path | `~/Nami/profiles` |
-| `NAMI_BROWSER` | Browser for automated cookie extraction (`brave`, `chrome`, `edge`, `firefox`) | `brave` |
-| `NAMI_USER_AGENT` | Custom HTTP User-Agent string | Standard Chrome string |
-| `NAMI_TIMEOUT_SECONDS` | Child engine process execution timeout in seconds | `900` |
-| `NAMI_THEME` | Terminal UI theme (`dark` or `light`) | `dark` |
-| `NAMI_SKIP_ENV_CHECK` | Set to `1` to bypass startup binary presence check | `0` |
-
----
-
-## Development & Testing
-
-Clone the repository and install dev dependencies:
+Run local, read-only diagnostics:
 
 ```bash
-git clone https://github.com/OpenSelena/nami.git
-cd nami
-pip install -e ".[dev]"
+nami doctor
 ```
 
-Run test suite and quality checks:
+Doctor checks include:
+
+- configuration validity
+- Python version
+- importability of runtime dependencies
+- workspace readability/writability
+- configured browser state
+- cookie-file validity
+- profile-file readability
+- potential `urllib3` namespace conflicts
+- stale archive locks
+
+Doctor does not make network requests and does not mutate the workspace.
+
+## Exit codes
+
+| Code | Meaning |
+| ---: | --- |
+| 0 | Success |
+| 1 | Failure |
+| 2 | Invalid input or configuration |
+| 3 | Partial result, warning, or unsupported-only result |
+| 4 | No results |
+| 130 | Cancelled |
+
+## Development
+
+Clone the repository, create an environment, and install development dependencies:
 
 ```bash
-# Run pytest
-pytest
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
+```
 
-# Run Ruff linter and formatter checks
-ruff check src tests
-ruff format --check src tests
+Run tests and quality checks:
 
-# Build and verify distribution package
+```bash
+PYTHONPATH=src python -m pytest -q
+python -m ruff check src tests
+python -m ruff format --check src tests
 python -m build
-twine check dist/*
+python -m twine check dist/*
 check-wheel-contents dist/*.whl
 ```
 
----
+The test suite is designed to avoid network calls.
+
+## Troubleshooting
+
+- Run `nami doctor` first; it provides targeted remediation messages.
+- If `pytest` imports an installed old copy of Nami, run with `PYTHONPATH=src` or install the package editable with `python -m pip install -e .[dev]`.
+- If cookie authentication fails, export fresh Netscape cookies and ensure the file has real cookie rows, not just template comments.
+- If TikTok browser-cookie extraction fails, close the configured browser and retry.
+- If downloads repeatedly time out, increase `timeout_seconds` with `nami config set timeout_seconds 3600`.
+- If you intentionally want to re-download content, use `nami archive reset` instead of deleting files manually.
 
 ## License
 
-Distributed under the [MIT License](LICENSE). Developed and maintained by **[Igect](https://github.com/Igect)** under **[OpenSelena](https://github.com/OpenSelena)**.
+Nami is distributed under the MIT License. See `LICENSE`.
