@@ -53,17 +53,11 @@ class NamiService:
         engines: Mapping[str, Engine] | None = None,
         runner: Runner | None = None,
         policy: RetryPolicy | None = None,
-        retry_policy: RetryPolicy | None = None,
         sleeper: Sleeper | None = None,
         event_sink: EventSink | None = None,
-        sink: EventSink | None = None,
         auth_resolver: AuthResolver = resolve_auth,
         lock_timeout: float = 0.0,
     ) -> None:
-        if policy is not None and retry_policy is not None:
-            raise TypeError("provide policy or retry_policy, not both")
-        if event_sink is not None and sink is not None:
-            raise TypeError("provide event_sink or sink, not both")
         if lock_timeout < 0:
             raise ValueError("lock_timeout must not be negative")
 
@@ -72,9 +66,9 @@ class NamiService:
             engines = {engine.name: engine for engine in defaults}
         self.engines: dict[str, Engine] = dict(engines)
         self.runner: Runner = runner if runner is not None else SubprocessRunner()
-        self.policy: RetryPolicy = policy or retry_policy or RetryPolicy()
+        self.policy: RetryPolicy = policy or RetryPolicy()
         self.sleeper: Sleeper = sleeper or time.sleep
-        self.event_sink: EventSink = event_sink or sink or NullEventSink()
+        self.event_sink: EventSink = event_sink or NullEventSink()
         self.auth_resolver: AuthResolver = auth_resolver
         self.lock_timeout: float = lock_timeout
 
@@ -113,26 +107,6 @@ class NamiService:
             if result.outcome is Outcome.CANCELLED:
                 break
         return BatchResult(tuple(results))
-
-    def run(
-        self,
-        request: DownloadRequest,
-        *,
-        cancel_event: threading.Event | None = None,
-    ) -> BatchResult:
-        """Compatibility alias for :meth:`execute`."""
-
-        return self.execute(request, cancel_event=cancel_event)
-
-    def download(
-        self,
-        request: DownloadRequest,
-        *,
-        cancel_event: threading.Event | None = None,
-    ) -> BatchResult:
-        """Compatibility alias for :meth:`execute`."""
-
-        return self.execute(request, cancel_event=cancel_event)
 
     def _execute_step(
         self,

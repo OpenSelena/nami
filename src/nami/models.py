@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -47,26 +47,22 @@ class FailureKind(str, Enum):
     UNKNOWN = "unknown"
 
 
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, Path):
-        return str(value)
-    if is_dataclass(value) and not isinstance(value, type):
-        return {field.name: _json_safe(getattr(value, field.name)) for field in fields(value)}
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list)):
-        return [_json_safe(item) for item in value]
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    return str(value)
+def _dict_factory(items: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in items:
+        if isinstance(value, Enum):
+            result[key] = value.value
+        elif isinstance(value, Path):
+            result[key] = str(value)
+        else:
+            result[key] = value
+    return result
 
 
 class _JsonModel:
     def to_dict(self) -> dict[str, Any]:
         """Return a recursively JSON-serializable representation."""
-        return _json_safe(self)
+        return asdict(self, dict_factory=_dict_factory)  # type: ignore[arg-type]
 
 
 @dataclass(frozen=True)

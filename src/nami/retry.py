@@ -42,22 +42,6 @@ class RetryDecision:
         if not self.retry and (actions or self.delay_seconds):
             raise ValueError("a stop decision cannot include a retry action or delay")
 
-    @property
-    def should_retry(self) -> bool:
-        return self.retry
-
-    @property
-    def same_engine(self) -> bool:
-        return self.retry_same_engine
-
-    @property
-    def alternate_engine(self) -> bool:
-        return self.use_alternate_engine
-
-    @property
-    def anonymous(self) -> bool:
-        return self.use_anonymous
-
 
 class RetryPolicy:
     """Apply conservative, bounded retry rules without sleeping or downloading."""
@@ -133,24 +117,6 @@ class RetryPolicy:
             return self._stop(f"{failure_kind.value} failures are not retryable")
 
         return self._stop("failure is not safely retryable")
-
-    def decision(
-        self,
-        failure_kind: FailureKind,
-        attempt: int = 1,
-        auth_supplied: bool = False,
-        anonymous_retry_used: bool = False,
-        alternate_available: bool = False,
-    ) -> RetryDecision:
-        """Compatibility alias for :meth:`decide`."""
-
-        return self.decide(
-            failure_kind,
-            attempt,
-            auth_supplied,
-            anonymous_retry_used,
-            alternate_available,
-        )
 
     def _backoff(self, attempt: int) -> float:
         exponential = self.base_delay_seconds * (2.0 ** (attempt - 1))

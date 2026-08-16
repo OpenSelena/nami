@@ -24,11 +24,6 @@ class AuthSpec:
     cookie_file: Path | None = None
     browser: str | None = None
 
-    @property
-    def path(self) -> Path | None:
-        """Compatibility alias for cookie-file based callers."""
-        return self.cookie_file
-
 
 @dataclass(frozen=True)
 class CookieValidation:

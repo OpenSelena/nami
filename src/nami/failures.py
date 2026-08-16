@@ -4,18 +4,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import cast
 
 from nami.models import FailureKind
 from nami.process import CommandResult
-
-
-def _failure_kind(*names: str) -> FailureKind:
-    for name in names:
-        member = getattr(FailureKind, name, None)
-        if member is not None:
-            return cast(FailureKind, member)
-    raise AttributeError(f"FailureKind is missing expected member {names[0]}")
 
 
 def _contains_any(text: str, diagnostics: Iterable[str]) -> bool:
@@ -29,7 +20,7 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
         # Cancellation is represented by Outcome.CANCELLED, not FailureKind.
         return None
     if result.timed_out:
-        return _failure_kind("TIMEOUT", "TIMED_OUT")
+        return FailureKind.TIMEOUT
     if result.returncode == 0:
         return None
 
@@ -51,7 +42,7 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
             "cookies have expired",
         ),
     ):
-        return _failure_kind("AUTH", "AUTHENTICATION")
+        return FailureKind.AUTH
 
     if _contains_any(
         text,
@@ -68,7 +59,7 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
             "cookiejar error",
         ),
     ):
-        return _failure_kind("COOKIE", "AUTH")
+        return FailureKind.COOKIE
 
     if _contains_any(
         text,
@@ -80,13 +71,13 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
             "account checkpoint",
         ),
     ):
-        return _failure_kind("LOCKED", "CHECKPOINT", "CHALLENGE")
+        return FailureKind.LOCKED
 
     if re.search(r"(?:http(?: error)?|status(?: code)?)\s*[:=]?\s*429\b", text) or _contains_any(
         text,
         ("too many requests", "rate limit", "rate-limit", "ratelimit", "throttled"),
     ):
-        return _failure_kind("RATE_LIMIT", "RATE_LIMITED")
+        return FailureKind.RATE_LIMIT
 
     if _contains_any(
         text,
@@ -107,7 +98,7 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
             "ssl certificate verify failed",
         ),
     ):
-        return _failure_kind("NETWORK")
+        return FailureKind.NETWORK
 
     if _contains_any(
         text,
@@ -123,7 +114,7 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
             "attributeerror: module",
         ),
     ):
-        return _failure_kind("DEPENDENCY", "ENVIRONMENT")
+        return FailureKind.DEPENDENCY
 
     if _contains_any(
         text,
@@ -142,7 +133,7 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
             "status code 404",
         ),
     ):
-        return _failure_kind("NOT_FOUND", "NO_RESULTS")
+        return FailureKind.NOT_FOUND
 
     if _contains_any(
         text,
@@ -154,9 +145,9 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
             "no extractor could handle",
         ),
     ):
-        return _failure_kind("EXTRACTOR", "UNSUPPORTED")
+        return FailureKind.EXTRACTOR
 
-    return _failure_kind("UNKNOWN")
+    return FailureKind.UNKNOWN
 
 
 classify_command_result = classify_failure

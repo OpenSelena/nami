@@ -2,7 +2,15 @@
 
 All notable changes to Nami are documented here.
 
-## [5.0.0] - Unreleased
+## [5.0.1] - 2026-08-17
+
+### Architecture and Refactoring
+
+- Removed dead polymorphic token extractors and speculative enum resolvers in engine adapters and failure classifiers.
+- Simplified domain model serialization to leverage standard library `dataclasses.asdict()`.
+- Cleaned service and retry parameter signatures and eliminated redundant method and property wrappers.
+
+## [5.0.0] - 2026-08-16
 
 ### Architecture
 

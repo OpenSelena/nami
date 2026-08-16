@@ -60,29 +60,3 @@ class Engine(Protocol):
     def analyze_output(self, lines: Iterable[str]) -> EngineAnalysis:
         """Count downloaded and archive-skipped items in output lines."""
         ...
-
-
-def model_token(value: object) -> str:
-    """Return a stable lower-case token for enums or model objects."""
-
-    raw = getattr(value, "value", value)
-    if not isinstance(raw, (str, int)):
-        raw = getattr(value, "name", value.__class__.__name__)
-    return str(raw).strip().casefold().replace("-", "_").replace(" ", "_")
-
-
-def target_token(target: object) -> str:
-    """Extract a target-kind token from either an enum or a Target model."""
-
-    for attribute in ("content_type", "kind", "type", "target_type"):
-        value = getattr(target, attribute, None)
-        if value is not None:
-            return model_token(value)
-    return model_token(target)
-
-
-def target_platform_token(target: object) -> str:
-    """Extract a platform token when the Target model exposes one."""
-
-    platform = getattr(target, "platform", None)
-    return model_token(platform) if platform is not None else ""

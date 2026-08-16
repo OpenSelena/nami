@@ -7,12 +7,7 @@ import sys
 from collections.abc import Iterable
 
 from nami.auth import auth_cli_args
-from nami.engines.base import (
-    EngineAnalysis,
-    EngineRequest,
-    model_token,
-    target_platform_token,
-)
+from nami.engines.base import EngineAnalysis, EngineRequest
 from nami.models import MediaKind, Target
 from nami.process import CommandSpec
 
@@ -39,8 +34,8 @@ class GalleryDlEngine:
         self._request_sleep_seconds: float = request_sleep_seconds
 
     def supports(self, target: Target, media: MediaKind) -> bool:
-        platform = target_platform_token(target)
-        media_name = model_token(media)
+        platform = target.platform.value if hasattr(target, "platform") and target.platform else ""
+        media_name = getattr(media, "value", str(media))
         platform_supported = not platform or platform in {
             "facebook",
             "instagram",
@@ -82,7 +77,7 @@ class GalleryDlEngine:
             sleep,
         ]
 
-        media = model_token(request.media)
+        media = getattr(request.media, "value", str(request.media))
         if media in {"photo", "photos", "image", "images"}:
             argv.extend(("--filter", _PHOTO_FILTER))
         elif media in {"video", "videos", "reel", "reels"}:
