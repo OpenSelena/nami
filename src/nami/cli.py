@@ -1,1500 +1,656 @@
-#!/usr/bin/env python3
-"""
-Nami v2.3.9 — multi-platform media downloader (gallery-dl + yt-dlp)
-
-First-run Setup creates:
-
-    <you choose>/Nami/
-        downloads/     media
-        cookies/       Netscape cookie files
-        profiles/      profile URL lists
-
-Paths are saved in ~/.nami/nami_config.json.
-"""
+"""Command-line and interactive entry points for Nami."""
 
 from __future__ import annotations
 
+import argparse
 import json
-import os
+import re
 import sys
-import subprocess
-import urllib.parse
-import time
-import importlib.util
+from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
-try:
-    from importlib.metadata import version as pkg_version
-    __version__ = pkg_version("nami")
-except Exception:
-    __version__ = "2.3.9"
+from nami import __version__
+from nami.archive import (
+    ArchiveError,
+    ArchiveReset,
+    discover_archives,
+    reset_archives,
+)
+from nami.config import (
+    DEFAULT_BROWSER,
+    DEFAULT_TIMEOUT_SECONDS,
+    DEFAULT_USER_AGENT,
+    ConfigError,
+    ConfigRepository,
+    Settings,
+    initialize_workspace,
+    settings_for_root,
+)
+from nami.doctor import run_doctor
+from nami.events import NullEventSink
+from nami.models import MediaKind, Platform, Target
+from nami.planner import DownloadRequest
+from nami.service import create_default_service
+from nami.targets import TargetParseError, load_profile_targets, parse_target
 
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.align import Align
-    from rich.text import Text
-    from rich.box import ROUNDED
-    from rich.prompt import Prompt
-    from rich.progress import (
-        Progress, SpinnerColumn, TextColumn, BarColumn,
-        TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn
-    )
-except ImportError:
-    print("[FATAL] The 'rich' library is required to run this script.")
-    print("Please install it by running: pip install rich")
-    sys.exit(1)
-
-CONFIG_DIR = Path.home() / ".nami"
-CONFIG_FILE = CONFIG_DIR / "nami_config.json"
-PLATFORMS = ("instagram", "tiktok", "facebook", "x")
-PROFILE_FILES = tuple(f"{p}_profiles.txt" for p in PLATFORMS)
-COOKIE_FILES = tuple(f"{p}_cookies.txt" for p in PLATFORMS)
-
-
-def clear_screen() -> None:
-    """Hard clear — Rich clear alone is unreliable in Windows Terminal."""
-    if sys.platform == "win32":
-        os.system("cls")
-    else:
-        os.system("clear")
-    try:
-        console.clear()
-    except Exception:
-        pass
-
-
-def _detect_theme() -> str:
-    """
-    Optional override only. Body text no longer depends on this value for
-    readability — primary/secondary/muted use the terminal's default
-    foreground so they always contrast with whatever background the user set.
-
-    NAMI_THEME=light|dark still tweaks accent/warning/error shades slightly.
-    """
-    explicit = os.environ.get("NAMI_THEME", "auto").strip().lower()
-    if explicit in ("light", "dark"):
-        return explicit
-
-    colorfgbg = os.environ.get("COLORFGBG", "")
-    if colorfgbg:
-        try:
-            parts = colorfgbg.split(";")
-            if len(parts) >= 2:
-                bg = int(parts[-1])
-                if bg in (7, 15):
-                    return "light"
-                if 0 <= bg <= 8:
-                    return "dark"
-        except ValueError:
-            pass
-
-    # Windows Terminal often keeps classic conhost attributes at "dark"
-    # even when the visual theme is light, so we do not trust Win32 here.
-    return "dark"
-
-
-THEME = _detect_theme()
-
-# primary / secondary / muted intentionally use the terminal default
-# foreground (no forced white/black). That way labels stay readable on
-# both light and dark backgrounds without perfect theme detection.
-# Accent and status colors stay branded orange / semantic.
-C = {
-    # "default" = terminal's own foreground (always contrasts with bg)
-    "primary": "bold default",
-    "secondary": "default",
-    "muted": "dim",
-    "accent": "#C45C2A" if THEME == "light" else "#D97757",
-    "accent_b": "bold #C45C2A" if THEME == "light" else "bold #D97757",
-    "success": "bold #1a7a3a" if THEME == "light" else "#D97757",
-    "warning": "bold #8a5a00" if THEME == "light" else "bold #E6B800",
-    "error": "bold #b00020" if THEME == "light" else "bold #FF6B6B",
-    "panel_border": "#C45C2A" if THEME == "light" else "#D97757",
-    "bar_complete": "#C45C2A" if THEME == "light" else "#D97757",
+_CONFIG_KEYS = (
+    "base_dir",
+    "cookies_dir",
+    "profiles_dir",
+    "browser",
+    "user_agent",
+    "timeout_seconds",
+)
+_MENU_MEDIA = {
+    "1": (MediaKind.PHOTOS,),
+    "2": (MediaKind.VIDEOS,),
+    "3": (MediaKind.STORIES,),
+    "4": (MediaKind.HIGHLIGHTS,),
+    "5": (MediaKind.PHOTOS, MediaKind.VIDEOS),
+    "6": (MediaKind.STORIES, MediaKind.HIGHLIGHTS),
+    "7": tuple(MediaKind),
 }
-
-
-
-def _make_console() -> Console:
-    """
-    Create a Rich Console that respects:
-    - NO_COLOR / FORCE_COLOR environment variables
-    - Whether stdout is a real TTY
-    - Terminal color capability
-    """
-    # Standard NO_COLOR convention → disable all color
-    if os.environ.get("NO_COLOR"):
-        return Console(force_terminal=False, no_color=True, color_system=None)
-
-    # FORCE_COLOR=1 is also a common convention
-    force = os.environ.get("FORCE_COLOR", "").strip().lower() in ("1", "true", "yes")
-
-    return Console(
-        force_terminal=True if force else None,  # None = auto-detect TTY
-        color_system="auto",                     # let Rich choose best system
-        highlight=False,
-    )
-
-
-console = _make_console()
-
-BASE_DIR: Path | None = None
-COOKIES_DIR: Path | None = None
-PROFILES_DIR: Path | None = None
-BROWSER: str = "brave"
-UA = os.environ.get(
-    "NAMI_USER_AGENT",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
-MAX_RETRIES = 2
-DEBUG_LOG: Path | None = None
-
-PHOTO_FILTER = (
-    "extension in ('jpg','jpeg','png','gif','webp','bmp','jfif',"
-    "'heic','avif','tiff','svg')"
-)
-VIDEO_FILTER = (
-    "extension in ('mp4','webm','mkv','mov','avi','m4v','flv','wmv',"
-    "'3gp','mpeg','mpg','ts','f4v','mts','m2ts')"
-)
-MEDIA_EXTS = {
-    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".jfif", ".heic",
-    ".avif", ".tiff", ".svg", ".mp4", ".webm", ".mkv", ".mov", ".avi",
-    ".m4v", ".flv", ".wmv", ".3gp", ".mpeg", ".mpg", ".ts", ".f4v",
-    ".mts", ".m2ts",
+_MEDIA_DIRECTORIES = {
+    MediaKind.PHOTOS: "Photos",
+    MediaKind.VIDEOS: "Videos",
+    MediaKind.STORIES: "Stories",
+    MediaKind.HIGHLIGHTS: "Highlights",
 }
+_SAFE_TARGET = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,239}\Z")
 
 
-def is_configured() -> bool:
-    if BASE_DIR is None or COOKIES_DIR is None or PROFILES_DIR is None:
-        return False
+def build_parser() -> argparse.ArgumentParser:
+    """Build Nami's side-effect-free argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="nami",
+        description="Download media from Instagram, TikTok, Facebook, and X.",
+    )
+    parser.add_argument("--version", action="version", version=__version__)
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    setup = commands.add_parser("setup", help="initialize a Nami workspace")
+    setup.add_argument("--root", type=Path, required=True, help="parent of the Nami directory")
+    setup.add_argument(
+        "--cookie-templates",
+        action="store_true",
+        help="create optional Netscape cookie templates",
+    )
+    setup.add_argument("--json", action="store_true", help="write one JSON result")
+    setup.set_defaults(handler=_run_setup)
+
+    download = commands.add_parser("download", help="download explicit or profile targets")
+    download.add_argument("urls", nargs="*", metavar="URL")
+    download.add_argument("--profiles", action="store_true", help="include configured profile files")
+    download.add_argument("--platform", choices=[item.value for item in Platform])
+    download.add_argument(
+        "--media",
+        type=_parse_media,
+        default=tuple(MediaKind),
+        metavar="KINDS",
+        help="comma-separated photos,videos,stories,highlights or all",
+    )
+    download.add_argument("--json", action="store_true", help="write one JSON result")
+    download.set_defaults(handler=_run_download)
+
+    doctor = commands.add_parser("doctor", help="inspect local Nami dependencies and state")
+    doctor.add_argument("--json", action="store_true", help="write one JSON report")
+    doctor.set_defaults(handler=_run_doctor)
+
+    config = commands.add_parser("config", help="show or edit configuration")
+    _add_json_option(config)
+    config_commands = config.add_subparsers(dest="config_command", required=True)
+    show = config_commands.add_parser("show", help="show all settings")
+    _add_json_option(show, suppress_default=True)
+    show.set_defaults(handler=_run_config)
+    get = config_commands.add_parser("get", help="show one setting")
+    get.add_argument("key", choices=_CONFIG_KEYS)
+    _add_json_option(get, suppress_default=True)
+    get.set_defaults(handler=_run_config)
+    set_command = config_commands.add_parser("set", help="persist one setting")
+    set_command.add_argument("key", choices=_CONFIG_KEYS)
+    set_command.add_argument("value")
+    _add_json_option(set_command, suppress_default=True)
+    set_command.set_defaults(handler=_run_config)
+    unset = config_commands.add_parser("unset", help="reset one setting")
+    unset.add_argument("key", choices=_CONFIG_KEYS)
+    _add_json_option(unset, suppress_default=True)
+    unset.set_defaults(handler=_run_config)
+
+    archive = commands.add_parser("archive", help="manage download archives")
+    archive_commands = archive.add_subparsers(dest="archive_command", required=True)
+    reset = archive_commands.add_parser("reset", help="back up or delete archives")
+    reset.add_argument("--platform", choices=[item.value for item in Platform])
+    reset.add_argument("--target")
+    reset.add_argument("--media", choices=[item.value for item in MediaKind])
+    reset.add_argument("--all", dest="all_archives", action="store_true")
+    reset.add_argument("--dry-run", action="store_true")
+    reset.add_argument("--yes", action="store_true", help="confirm mutation")
+    reset.add_argument(
+        "--delete",
+        action="store_true",
+        help="permanently delete instead of backing up",
+    )
+    reset.add_argument("--json", action="store_true", help="write one JSON result")
+    reset.set_defaults(handler=_run_archive_reset)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run Nami and return a deterministic process exit status."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments:
+        return run_interactive()
+
+    parser = build_parser()
     try:
-        return BASE_DIR.is_dir() and COOKIES_DIR.is_dir() and PROFILES_DIR.is_dir()
-    except OSError:
-        return False
+        namespace = parser.parse_args(arguments)
+    except SystemExit as exit_request:
+        return int(exit_request.code or 0)
+    return int(namespace.handler(namespace))
 
 
-def load_config() -> None:
-    global BASE_DIR, COOKIES_DIR, PROFILES_DIR, BROWSER, DEBUG_LOG
+def run_interactive(repository: ConfigRepository | None = None, console: Any | None = None) -> int:
+    """Run the legacy no-argument menu over the current domain APIs."""
+    from nami import ui
 
-    BASE_DIR = None
-    COOKIES_DIR = None
-    PROFILES_DIR = None
-    BROWSER = "brave"
-    DEBUG_LOG = None
-
-    if not CONFIG_FILE.exists():
-        if os.environ.get("NAMI_BASE_DIR") and os.environ.get("NAMI_COOKIES_DIR"):
-            try:
-                BASE_DIR = Path(os.environ["NAMI_BASE_DIR"]).expanduser().resolve()
-                COOKIES_DIR = Path(os.environ["NAMI_COOKIES_DIR"]).expanduser().resolve()
-                env_prof = os.environ.get("NAMI_PROFILES_DIR")
-                if env_prof:
-                    PROFILES_DIR = Path(env_prof).expanduser().resolve()
-                else:
-                    PROFILES_DIR = BASE_DIR.parent / "profiles"
-                BROWSER = os.environ.get("NAMI_BROWSER", "brave").strip() or "brave"
-                DEBUG_LOG = BASE_DIR / "nami_debug.log"
-            except Exception as e:
-                console.print(
-                    f"[{C['error']}][ERROR] Invalid NAMI_* path environment variables: {e}"
-                    f"[/{C['error']}]"
-                )
-                BASE_DIR = COOKIES_DIR = PROFILES_DIR = None
-        return
-
+    repo = repository or ConfigRepository()
+    output = console or ui.make_console()
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return
-    except (json.JSONDecodeError, OSError) as e:
-        console.print(
-            f"[{C['warning']}][WARN] Could not read {CONFIG_FILE.name}: {e}"
-            f"[/{C['warning']}]"
-        )
-        return
-
-    base = data.get("base_dir") or os.environ.get("NAMI_BASE_DIR")
-    cookies = data.get("cookies_dir") or os.environ.get("NAMI_COOKIES_DIR")
-    profiles = data.get("profiles_dir") or os.environ.get("NAMI_PROFILES_DIR")
-    browser = data.get("browser") or os.environ.get("NAMI_BROWSER") or "brave"
-
-    if base:
         try:
-            BASE_DIR = Path(str(base)).expanduser().resolve()
-        except Exception:
-            BASE_DIR = None
-    if cookies:
-        try:
-            COOKIES_DIR = Path(str(cookies)).expanduser().resolve()
-        except Exception:
-            COOKIES_DIR = None
-    if profiles:
-        try:
-            PROFILES_DIR = Path(str(profiles)).expanduser().resolve()
-        except Exception:
-            PROFILES_DIR = None
-    elif BASE_DIR is not None:
-        # Older configs without profiles_dir → sibling of downloads
-        PROFILES_DIR = BASE_DIR.parent / "profiles"
-
-    BROWSER = str(browser).strip() or "brave"
-    if BASE_DIR is not None:
-        DEBUG_LOG = BASE_DIR / "nami_debug.log"
-
-
-def save_config() -> bool:
-    if BASE_DIR is None or COOKIES_DIR is None or PROFILES_DIR is None:
-        console.print(
-            f"[{C['error']}][ERROR] Cannot save config: directories not set."
-            f"[/{C['error']}]"
-        )
-        return False
-    data = {
-        "base_dir": str(BASE_DIR),
-        "cookies_dir": str(COOKIES_DIR),
-        "profiles_dir": str(PROFILES_DIR),
-        "browser": BROWSER,
-    }
-    try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        return True
-    except OSError as e:
-        console.print(f"[{C['error']}][ERROR] Failed to save config: {e}[/{C['error']}]")
-        return False
-
-
-def ensure_dirs() -> bool:
-    if BASE_DIR is None or COOKIES_DIR is None or PROFILES_DIR is None:
-        return False
-    try:
-        BASE_DIR.mkdir(parents=True, exist_ok=True)
-        COOKIES_DIR.mkdir(parents=True, exist_ok=True)
-        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-        for name in PROFILE_FILES:
-            path = PROFILES_DIR / name
-            if not path.exists():
-                path.write_text("# One profile URL per line\n", encoding="utf-8")
-        for name in COOKIE_FILES:
-            path = COOKIES_DIR / name
-            alt_path = COOKIES_DIR / name.replace("_cookies.txt", ".com_cookies.txt")
-            if not path.exists() and not alt_path.exists():
-                path.write_text("# Netscape HTTP Cookie File\n# Paste your Netscape-formatted cookies here\n", encoding="utf-8")
-        return True
-    except OSError as e:
-        console.print(
-            f"[{C['error']}][ERROR] Cannot create directories: {e}[/{C['error']}]"
-        )
-        return False
-
-
-def log_debug(context, exc) -> None:
-    if DEBUG_LOG is None:
-        return
-    try:
-        DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(DEBUG_LOG, "a", encoding="utf-8") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {context}: {repr(exc)}\n")
-    except Exception:
-        pass
-
-
-def run_setup() -> bool:
-    """Create Nami folders, empty profile lists, save config."""
-    global BASE_DIR, COOKIES_DIR, PROFILES_DIR, DEBUG_LOG
-
-    clear_screen()
-    intro = Text()
-    intro.append("Creates:\n\n", style=C["primary"])
-    intro.append("  <path>/Nami/downloads\n", style=C["secondary"])
-    intro.append("  <path>/Nami/cookies\n", style=C["secondary"])
-    intro.append("  <path>/Nami/profiles\n\n", style=C["secondary"])
-    intro.append("Enter parent path (Enter = current directory)", style=C["muted"])
-
-    console.print(Panel(
-        intro,
-        title=f"[{C['muted']}]Setup[/{C['muted']}]",
-        border_style=C["panel_border"],
-        box=ROUNDED,
-        padding=(1, 2),
-        expand=False
-    ))
-    console.print()
-
-    default_dir = Path.cwd()
-    raw = Prompt.ask(
-        f"[{C['accent_b']}]Path[/{C['accent_b']}]",
-        default=str(default_dir),
-        console=console
-    )
-    raw = raw.strip().strip('"').strip("'")
-    if not raw:
-        raw = str(default_dir)
-
-    try:
-        parent = Path(raw).expanduser().resolve()
-    except Exception as e:
-        console.print(f"[{C['error']}]Invalid path: {e}[/{C['error']}]")
-        input("\nPress Enter...")
-        return False
-
-    if parent.exists() and not parent.is_dir():
-        console.print(f"[{C['error']}]Not a directory.[/{C['error']}]")
-        input("\nPress Enter...")
-        return False
-
-    nami_root = parent / "Nami"
-    downloads = nami_root / "downloads"
-    cookies = nami_root / "cookies"
-    profiles = nami_root / "profiles"
-
-    if nami_root.exists():
-        console.print(f"[{C['warning']}]Exists: {nami_root}[/{C['warning']}]")
-        confirm = Prompt.ask(
-            f"[{C['accent_b']}]Use it? (y/n)[/{C['accent_b']}]",
-            choices=["y", "n", "Y", "N"],
-            default="y",
-            console=console
-        ).strip().lower()
-        if confirm != "y":
-            console.print(f"[{C['muted']}]Cancelled.[/{C['muted']}]")
-            input("\nPress Enter...")
-            return False
-
-    try:
-        downloads.mkdir(parents=True, exist_ok=True)
-        cookies.mkdir(parents=True, exist_ok=True)
-        profiles.mkdir(parents=True, exist_ok=True)
-        for name in PROFILE_FILES:
-            path = profiles / name
-            if not path.exists():
-                path.write_text("# One profile URL per line\n", encoding="utf-8")
-        for name in COOKIE_FILES:
-            path = cookies / name
-            alt_path = cookies / name.replace("_cookies.txt", ".com_cookies.txt")
-            if not path.exists() and not alt_path.exists():
-                path.write_text("# Netscape HTTP Cookie File\n# Paste your Netscape-formatted cookies here\n", encoding="utf-8")
-    except OSError as e:
-        console.print(f"[{C['error']}]Failed: {e}[/{C['error']}]")
-        input("\nPress Enter...")
-        return False
-
-    BASE_DIR = downloads
-    COOKIES_DIR = cookies
-    PROFILES_DIR = profiles
-    DEBUG_LOG = BASE_DIR / "nami_debug.log"
-
-    if not save_config():
-        input("\nPress Enter...")
-        return False
-
-    clear_screen()
-    summary = Text()
-    summary.append("Done\n\n", style=C["success"])
-    summary.append(f"  {downloads}\n", style=C["secondary"])
-    summary.append(f"  {cookies}\n", style=C["secondary"])
-    summary.append(f"  {profiles}\n", style=C["secondary"])
-
-    console.print(Panel(
-        summary,
-        border_style=C["panel_border"],
-        box=ROUNDED,
-        padding=(1, 2),
-        expand=False
-    ))
-    input("\nPress Enter...")
-    return True
-
-
-def probe_urllib3_identity():
-    probe_script = (
-        "import urllib3, sys\n"
-        "path = getattr(urllib3, '__file__', '') or ''\n"
-        "version = getattr(urllib3, '__version__', 'unknown')\n"
-        "owner = 'unknown'\n"
-        "try:\n"
-        " from importlib.metadata import distribution\n"
-        " owner = distribution('urllib3').metadata.get('Name', 'unknown')\n"
-        "except Exception:\n"
-        " pass\n"
-        "print(f'{path}|{version}|{owner}')\n"
-    )
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", probe_script],
-            capture_output=True, text=True, timeout=10
-        )
-        if result.returncode != 0:
-            return False, f"probe failed to run: {result.stderr.strip()[:200]}"
-        output = result.stdout.strip()
-        if output.count("|") < 2:
-            return False, f"unexpected probe output: {output[:200]}"
-        file_path, version, owner = output.split("|", 2)
-        file_path_lower = file_path.lower()
-        owner_lower = owner.lower()
-        markers = ("urllib3_future", "urllib3-future", "niquests")
-        path_hijacked = any(m in file_path_lower for m in markers)
-        meta_hijacked = any(m in owner_lower for m in markers)
-        return (path_hijacked or meta_hijacked), (
-            f"urllib3 resolves to: {file_path or '(no __file__)'} "
-            f"(version reported: {version}, distribution owner: {owner})"
-        )
-    except subprocess.TimeoutExpired:
-        return False, "probe timed out"
-    except Exception as e:
-        log_debug("probe_urllib3_identity", e)
-        return False, f"probe raised: {e}"
-
-
-def check_environment() -> None:
-    if os.environ.get("NAMI_SKIP_ENV_CHECK") == "1":
-        return
-
-    missing = []
-    if importlib.util.find_spec("gallery_dl") is None:
-        missing.append("gallery-dl")
-    if importlib.util.find_spec("yt_dlp") is None:
-        missing.append("yt-dlp")
-    if missing:
-        console.print(Panel.fit(
-            f"[{C['error']}]Missing required package(s): {', '.join(missing)}[/{C['error']}]\n"
-            f"[{C['secondary']}]Install with:[/{C['secondary']}] "
-            f"[bold]{sys.executable} -m pip install {' '.join(missing)}[/bold]",
-            border_style="red",
-            title=f"[{C['error']}]Environment Check Failed[/{C['error']}]"
-        ))
-        input("\nPress Enter to exit...")
-        sys.exit(1)
-
-    present_pkgs = []
-    for pkg in ("urllib3_future", "niquests"):
-        if importlib.util.find_spec(pkg) is not None:
-            present_pkgs.append(pkg.replace("_", "-"))
-
-    is_hijacked, detail = probe_urllib3_identity()
-    if is_hijacked:
-        console.print(Panel.fit(
-            f"[{C['error']}]urllib3 namespace IS hijacked in this environment.[/{C['error']}]\n"
-            f"[{C['secondary']}]{detail}[/{C['secondary']}]\n"
-            f"[{C['secondary']}]gallery-dl and yt-dlp may fail networking. Fix with:[/{C['secondary']}]\n"
-            f"[bold]{sys.executable} -m pip uninstall "
-            f"{' '.join(present_pkgs) or 'urllib3-future niquests'}[/bold]\n"
-            f"[bold]{sys.executable} -m pip install --force-reinstall urllib3[/bold]",
-            border_style="red",
-            title=f"[{C['error']}]Dependency Conflict Confirmed[/{C['error']}]"
-        ))
-        time.sleep(2)
-    elif present_pkgs:
-        log_debug(
-            "check_environment",
-            f"{', '.join(present_pkgs)} present but not hijacking. {detail}"
-        )
-
-
-def is_brave_running() -> bool:
-    """Return True if a Brave process appears to be running."""
-    try:
-        if sys.platform == "win32":
-            res = subprocess.run(
-                ["tasklist", "/fi", "imagename eq brave.exe"],
-                capture_output=True, text=True, timeout=5
-            )
-            return "brave.exe" in res.stdout.lower()
-        else:
-            # macOS / Linux
-            res = subprocess.run(
-                ["pgrep", "-f", "Brave"],
-                capture_output=True, text=True, timeout=5
-            )
-            return bool(res.stdout.strip())
-    except Exception as e:
-        log_debug("is_brave_running", e)
-        return False
-
-
-def validate_cookie(file_path) -> bool:
-    path = Path(file_path)
-    if not path.exists():
-        return False
-    try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-        if "Netscape HTTP Cookie File" in content:
-            return True
-        for line in content.splitlines():
-            line = line.strip()
-            if line and not line.startswith("#"):
-                if len(line.split("\t")) >= 7:
-                    return True
-                break
-    except Exception as e:
-        log_debug(f"validate_cookie({file_path})", e)
-    return False
-
-
-def check_archive(directory, archive_file) -> None:
-    dir_path = Path(directory)
-    archive_path = Path(archive_file)
-    if not dir_path.exists():
-        if archive_path.exists():
-            try:
-                archive_path.unlink()
-            except Exception as e:
-                log_debug(f"check_archive unlink({archive_path})", e)
-        return
-
-    try:
-        media_count = sum(
-            1 for item in dir_path.iterdir()
-            if item.is_file() and item.suffix.lower() in MEDIA_EXTS
-        )
-    except OSError as e:
-        log_debug(f"check_archive({directory})", e)
-        return
-
-    if media_count == 0:
-        if archive_path.exists():
-            try:
-                archive_path.unlink()
-                console.print(f" [{C['muted']}]Empty, archive cleared.[/{C['muted']}]")
-            except Exception as e:
-                log_debug(f"check_archive unlink({archive_path})", e)
-    else:
-        if not archive_path.exists():
-            console.print(
-                f" [{C['muted']}]{media_count} files, archive missing "
-                f"(will be created).[/{C['muted']}]"
-            )
-        else:
-            console.print(f" [{C['muted']}]{media_count} files, archive ok.[/{C['muted']}]")
-
-
-def looks_like_media_output_line(line: str) -> bool:
-    candidate = line.strip()
-    if candidate.startswith("#"):
-        candidate = candidate[1:].strip()
-    if not candidate:
-        return False
-    has_sep = ("/" in candidate or "\\" in candidate)
-    ext = os.path.splitext(candidate)[1].lower()
-    return has_sep and ext in MEDIA_EXTS
-
-
-def run_command(cmd, silent_log_path=None, progress_obj=None, active_task_id=None):
-    try:
-        if silent_log_path:
-            log_dir = Path(silent_log_path).parent
-            log_dir.mkdir(parents=True, exist_ok=True)
-            with open(silent_log_path, "w", encoding="utf-8", errors="replace") as f:
-                res = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True)
-            return res.returncode
-
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", bufsize=1
-        )
-        items_processed = 0
-        try:
-            for line in process.stdout:
-                line_stripped = line.strip()
-                if not line_stripped:
-                    continue
-                if looks_like_media_output_line(line_stripped):
-                    items_processed += 1
-                    file_name = os.path.basename(line_stripped.lstrip("#").strip())
-                    if line_stripped.startswith("#"):
-                        console.print(f" [{C['muted']}]# {file_name}[/{C['muted']}]")
-                        if progress_obj is not None and active_task_id is not None:
-                            progress_obj.update(
-                                active_task_id,
-                                completed=items_processed,
-                                total=None,
-                                status=f"[{C['muted']}]Checking: {file_name[:25]}...[/{C['muted']}]"
-                            )
-                    else:
-                        console.print(f" [{C['accent_b']}]-> {file_name}[/{C['accent_b']}]")
-                        if progress_obj is not None and active_task_id is not None:
-                            progress_obj.update(
-                                active_task_id,
-                                completed=items_processed,
-                                total=None,
-                                status=(
-                                    f"[{C['accent_b']}]Downloaded: "
-                                    f"{file_name[:25]}...[/{C['accent_b']}]"
-                                )
-                            )
-                else:
-                    console.print(f" [{C['muted']}]{line_stripped}[/{C['muted']}]")
-            process.wait(timeout=7200)  # 2h safety net against permanent hangs
-            return process.returncode
-        except subprocess.TimeoutExpired:
-            console.print(f" [{C['error']}][ERROR] Download timed out after 2 hours[/{C['error']}]")
-            process.kill()
-            return 1
-        except KeyboardInterrupt:
-            process.terminate()
-            try:
-                process.wait(timeout=8)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            raise
-    except KeyboardInterrupt:
-        raise
-    except Exception as e:
-        console.print(f" [{C['error']}][ERROR] Command failed to run: {e}[/{C['error']}]")
-        log_debug(f"run_command({cmd})", e)
-        return 1
-
-
-def diagnose_log(log_path, tool_name) -> None:
-    path = Path(log_path)
-    if not path.exists():
-        return
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read().lower()
-        console.print(Panel.fit(
-            f"[{C['error']}]Download Diagnostics ({tool_name})[/{C['error']}]\n",
-            border_style="red"
-        ))
-        if any(kw in content for kw in (
-            "401", "login required", "not logged in", "authentication",
-            "please log in", "redirect", "redirected"
-        )):
-            console.print(
-                f" [{C['error']}][DIAGNOSIS] AUTH failure - session/cookies "
-                f"not accepted.[/{C['error']}]"
-            )
-        elif any(kw in content for kw in (
-            "checkpoint", "challenge_required", "suspicious login"
-        )):
-            console.print(
-                f" [{C['error']}][DIAGNOSIS] account CHECKPOINT/CHALLENGE - "
-                f"verify in a real browser first.[/{C['error']}]"
-            )
-        elif any(kw in content for kw in ("429", "rate", "too many requests")):
-            console.print(
-                f" [{C['error']}][DIAGNOSIS] RATE LIMITED - back off and "
-                f"retry later.[/{C['error']}]"
-            )
-        elif any(kw in content for kw in (
-            "no cookies", "cookiejar", "could not find brave cookie",
-            "could not find chrome cookie"
-        )):
-            console.print(
-                f" [{C['error']}][DIAGNOSIS] cookie source could not be read. "
-                f"Close the browser fully if using --cookies-from-browser.[/{C['error']}]"
-            )
-        elif any(kw in content for kw in (
-            "unable to download webpage", "connection", "timed out", "timeout"
-        )):
-            console.print(
-                f" [{C['error']}][DIAGNOSIS] NETWORK failure, not auth. "
-                f"Check connection.[/{C['error']}]"
-            )
-        elif any(kw in content for kw in (
-            "module 'urllib3'", "niquests", "urllib3-future", "attributeerror: module"
-        )):
-            console.print(
-                f" [{C['error']}][DIAGNOSIS] possible urllib3 namespace conflict "
-                f"(urllib3-future/niquests).[/{C['error']}]"
-            )
-        elif "no results for" in content:
-            console.print(
-                f" [{C['error']}][DIAGNOSIS] NO RESULTS FOUND - target URL was malformed, "
-                f"private, or has no public photos/media.[/{C['error']}]"
-            )
-        else:
-            console.print(
-                f" [{C['error']}][DIAGNOSIS] unrecognized failure - see "
-                f"{log_path} for details.[/{C['error']}]"
-            )
-    except Exception as e:
-        console.print(
-            f" [{C['error']}][ERROR] Failed to read log for diagnosis: {e}[/{C['error']}]"
-        )
-        log_debug(f"diagnose_log({log_path})", e)
-
-
-def parse_url(url, platform):
-    if not url.startswith("http"):
-        url = "https://" + url
-    try:
-        parsed = urllib.parse.urlparse(url)
-        domain = parsed.netloc.lower()
-        # Strip common mobile / subdomain prefixes
-        for prefix in ("www.", "m.", "mobile.", "vm.", "business."):
-            if domain.startswith(prefix):
-                domain = domain[len(prefix):]
-                break
-
-        valid_domains = {
-            "instagram": ["instagram.com"],
-            "tiktok": ["tiktok.com"],
-            "facebook": ["facebook.com"],
-            "x": ["x.com", "twitter.com"],
-        }
-        if domain not in valid_domains.get(platform, []):
-            return "INVALID_URL"
-
-        path = parsed.path.strip("/")
-        path_parts = [p for p in path.split("/") if p]
-        if not path_parts:
-            return None
-
-        # Facebook numeric ID format: /profile.php?id=123456789
-        if path_parts[0].lower() == "profile.php":
-            query = urllib.parse.parse_qs(parsed.query)
-            ids = query.get("id")
-            if ids and ids[0].isdigit():
-                return ids[0]
-            return None
-
-        username = path_parts[0].replace("@", "")
-        # Reject common non-profile path segments across platforms
-        if username.lower() in (
-            "p", "reel", "tv", "highlights", "stories",
-            "groups", "events", "hashtag", "i", "explore", "reels"
-        ):
-            return None
-        username = username.split("?")[0].split("#")[0]
-        return username if username else None
-    except Exception as e:
-        log_debug(f"parse_url({url}, {platform})", e)
-        return "INVALID_URL"
-
-
-def get_cookies_arg(platform):
-    if COOKIES_DIR is None:
-        # Still allow browser cookies for TikTok even without a cookies dir
-        if platform == "tiktok":
-            if is_brave_running():
-                console.print(
-                    f" [{C['warning']}][WARN] Brave is currently running - TikTok "
-                    f"cookie read via --cookies-from-browser may get a locked/"
-                    f"stale DB. Close Brave fully if TikTok keeps failing."
-                    f"[/{C['warning']}]"
-                )
-            return ["--cookies-from-browser", BROWSER]
-        return []
-
-    # Prefer explicit Netscape cookie file for every platform (including TikTok)
-    candidates = [
-        COOKIES_DIR / f"{platform}_cookies.txt",
-        COOKIES_DIR / f"{platform}.com_cookies.txt",
-    ]
-    if platform == "x":
-        candidates.extend([
-            COOKIES_DIR / "twitter_cookies.txt",
-            COOKIES_DIR / "twitter.com_cookies.txt",
-        ])
-
-    for cookie_file in candidates:
-        if cookie_file.exists():
-            if validate_cookie(cookie_file):
-                return ["--cookies", str(cookie_file)]
-            try:
-                with open(cookie_file, "r", encoding="utf-8", errors="ignore") as f:
-                    raw = f.read()
-                has_entries = any(l.strip() and not l.strip().startswith("#") for l in raw.splitlines())
-                if has_entries:
-                    console.print(
-                        f" [{C['warning']}][WARN] Cookie file {cookie_file.name} failed "
-                        f"validation, continuing without cookies.[/{C['warning']}]"
-                    )
-            except Exception:
-                pass
-
-    # Fallback for TikTok: browser cookies
-    if platform == "tiktok":
-        if is_brave_running():
-            console.print(
-                f" [{C['warning']}][WARN] Brave is currently running - TikTok "
-                f"cookie read via --cookies-from-browser may get a locked/"
-                f"stale DB. Close Brave fully if TikTok keeps failing."
-                f"[/{C['warning']}]"
-            )
-        return ["--cookies-from-browser", BROWSER]
-
-    return []
-
-
-def download_gd(directory, filter_str, cookies_arg, url, sleep_time="5",
-                silent=False, progress_obj=None, active_task_id=None):
-    dir_path = Path(directory)
-    dir_path.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        sys.executable, "-m", "gallery_dl",
-        "-D", str(dir_path),
-        "-o", f"user-agent={UA}",
-        "--download-archive", str(dir_path / "archive.txt"),
-        "--sleep-request", sleep_time,
-    ]
-    if filter_str:
-        cmd.extend(["--filter", filter_str])
-    cmd.extend(cookies_arg)
-    cmd.append(url)
-    log_path = str(dir_path / "lastrun.log") if silent else None
-    return run_command(
-        cmd, silent_log_path=log_path,
-        progress_obj=progress_obj, active_task_id=active_task_id
-    )
-
-
-def download_yt(directory, cookies_arg, url, silent=False,
-                progress_obj=None, active_task_id=None):
-    dir_path = Path(directory)
-    dir_path.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        sys.executable, "-m", "yt_dlp",
-        "-o", str(dir_path / "%(title)s.%(ext)s"),
-        "--no-playlist",
-        "--user-agent", UA,
-        "--download-archive", str(dir_path / "archive.txt"),
-    ]
-    cmd.extend(cookies_arg)
-    cmd.append(url)
-    log_path = str(dir_path / "lastrun.log") if silent else None
-    return run_command(
-        cmd, silent_log_path=log_path,
-        progress_obj=progress_obj, active_task_id=active_task_id
-    )
-
-
-def retry_with_cookie_fallback(attempt_fn, cookies_arg, log_file, tool_name,
-                               cookie_reject_context=""):
-    current_cookies = cookies_arg
-    for attempt in range(MAX_RETRIES + 1):
-        rc = attempt_fn(current_cookies, False)
-        if rc == 0:
-            return 0
-        if rc != 0 and current_cookies:
-            suffix = f" {cookie_reject_context}" if cookie_reject_context else ""
-            console.print(
-                f" [{C['warning']}]Cookies rejected/blocked{suffix}. "
-                f"Retrying anonymous fallback run...[/{C['warning']}]"
-            )
-            current_cookies = []
-            time.sleep(3)  # short backoff after credential rejection
-            continue
-        if attempt < MAX_RETRIES:
-            wait_time = (attempt + 1) * 10
-            console.print(
-                f" [{C['warning']}]{tool_name} failed (code {rc}), "
-                f"retry {attempt + 1}/{MAX_RETRIES} in {wait_time}s..."
-                f"[/{C['warning']}]"
-            )
-            time.sleep(wait_time)
-        else:
-            attempt_fn(current_cookies, True)
-            diagnose_log(log_file, tool_name)
-            return rc
-    return 1
-
-
-def retry_gd(directory, filter_str, cookies_arg, url,
-             progress_obj=None, active_task_id=None, platform_name=""):
-    log_file = Path(directory) / "lastrun.log"
-
-    def attempt(cookies, silent):
-        sleep_time = "1" if silent else "5"
-        return download_gd(
-            directory, filter_str, cookies, url,
-            sleep_time=sleep_time, silent=silent,
-            progress_obj=progress_obj, active_task_id=active_task_id
-        )
-
-    context = f"by {platform_name.capitalize()}" if platform_name else ""
-    return retry_with_cookie_fallback(
-        attempt, cookies_arg, log_file, "gallery-dl",
-        cookie_reject_context=context
-    )
-
-
-def retry_yt(directory, cookies_arg, url,
-             progress_obj=None, active_task_id=None, platform_name=""):
-    log_file = Path(directory) / "lastrun.log"
-
-    def attempt(cookies, silent):
-        return download_yt(
-            directory, cookies, url, silent=silent,
-            progress_obj=progress_obj, active_task_id=active_task_id
-        )
-
-    context = f"by {platform_name.capitalize()}" if platform_name else ""
-    return retry_with_cookie_fallback(
-        attempt, cookies_arg, log_file, "yt-dlp",
-        cookie_reject_context=context
-    )
-
-
-def process_photos(target_dir, cookies_arg, url, platform="",
-                   progress_obj=None, active_task_id=None):
-    check_archive(target_dir / "Photos", target_dir / "Photos/archive.txt")
-    console.print(f" [{C['primary']}]Checking Photos...[/{C['primary']}]")
-    rc = retry_gd(
-        target_dir / "Photos", PHOTO_FILTER, cookies_arg, url,
-        progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
-    )
-    if rc != 0:
-        console.print(
-            f" [{C['error']}][ERROR] gallery-dl exited with code {rc} "
-            f"after retries[/{C['error']}]"
-        )
-    return rc
-
-
-def process_videos(target_dir, cookies_arg, url, platform="",
-                   username="", progress_obj=None, active_task_id=None):
-    check_archive(target_dir / "Videos", target_dir / "Videos/archive.txt")
-    console.print(f" [{C['primary']}]Checking Videos...[/{C['primary']}]")
-
-    # 1) Normal profile / feed videos
-    rc = retry_gd(
-        target_dir / "Videos", VIDEO_FILTER, cookies_arg, url,
-        progress_obj=progress_obj, active_task_id=active_task_id,
-        platform_name=platform
-    )
-
-    # 2) Instagram Reels (separate URL — this is what was missing)
-    if platform == "instagram" and username:
-        reels_url = f"https://www.instagram.com/{username}/reels/"
-        console.print(f" [{C['primary']}]Checking Instagram Reels...[/{C['primary']}]")
-        reels_rc = retry_gd(
-            target_dir / "Videos", VIDEO_FILTER, cookies_arg, reels_url,
-            progress_obj=progress_obj, active_task_id=active_task_id,
-            platform_name=platform
-        )
-        # Keep the worse of the two return codes
-        if reels_rc != 0 and rc == 0:
-            rc = reels_rc
-
-    if rc != 0:
-        console.print(
-            f" [{C['warning']}]gallery-dl failed after retries, trying yt-dlp..."
-            f"[/{C['warning']}]"
-        )
-        yt_rc = retry_yt(
-            target_dir / "Videos", cookies_arg, url,
-            progress_obj=progress_obj, active_task_id=active_task_id,
-            platform_name=platform
-        )
-        # Also try Reels with yt-dlp if Instagram
-        if platform == "instagram" and username:
-            reels_url = f"https://www.instagram.com/{username}/reels/"
-            yt_reels_rc = retry_yt(
-                target_dir / "Videos", cookies_arg, reels_url,
-                progress_obj=progress_obj, active_task_id=active_task_id,
-                platform_name=platform
-            )
-            if yt_reels_rc != 0 and yt_rc == 0:
-                yt_rc = yt_reels_rc
-        if yt_rc != 0:
-            console.print(
-                f" [{C['error']}][ERROR] yt-dlp also failed with code {yt_rc} "
-                f"after retries[/{C['error']}]"
-            )
-        return yt_rc
-    return rc
-
-
-def process_stories(target_dir, cookies_arg, platform, username,
-                    progress_obj=None, active_task_id=None):
-    if platform != "instagram":
-        console.print(
-            f" [{C['muted']}][Stories] [SKIP] Not supported for {platform}"
-            f"[/{C['muted']}]"
-        )
-        return 0
-    check_archive(target_dir / "Stories", target_dir / "Stories/archive.txt")
-    console.print(f" [{C['primary']}]Checking Stories...[/{C['primary']}]")
-    rc = retry_gd(
-        target_dir / "Stories", None, cookies_arg,
-        f"https://www.instagram.com/stories/{username}/",
-        progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
-    )
-    if rc != 0:
-        console.print(
-            f" [{C['error']}][ERROR] gallery-dl exited with code {rc} "
-            f"after retries[/{C['error']}]"
-        )
-    return rc
-
-
-def process_highlights(target_dir, cookies_arg, platform, username,
-                       progress_obj=None, active_task_id=None):
-    if platform != "instagram":
-        console.print(
-            f" [{C['muted']}][Highlights] [SKIP] Not supported for {platform}"
-            f"[/{C['muted']}]"
-        )
-        return 0
-    check_archive(target_dir / "Highlights", target_dir / "Highlights/archive.txt")
-    console.print(f" [{C['primary']}]Checking Highlights...[/{C['primary']}]")
-    rc = retry_gd(
-        target_dir / "Highlights", None, cookies_arg,
-        f"https://www.instagram.com/{username}/highlights/",
-        progress_obj=progress_obj, active_task_id=active_task_id, platform_name=platform
-    )
-    if rc != 0:
-        console.print(
-            f" [{C['error']}][ERROR] gallery-dl exited with code {rc} "
-            f"after retries[/{C['error']}]"
-        )
-    return rc
-
-
-def download_profile(username, target_dir, platform, original_url, choice,
-                     progress_obj, active_task_id):
-    cookies_arg = get_cookies_arg(platform)
-    if platform == "instagram" and username:
-        clean_url = f"https://www.instagram.com/{username}/"
-    elif platform == "tiktok" and username:
-        clean_url = f"https://www.tiktok.com/@{username}"
-    elif platform == "facebook" and username:
-        if username.isdigit():
-            clean_url = f"https://www.facebook.com/profile.php?id={username}"
-        else:
-            clean_url = f"https://www.facebook.com/{username}"
-    elif platform == "x" and username:
-        clean_url = f"https://x.com/{username}"
-    else:
-        clean_url = original_url.rstrip("/")
-        if not clean_url.startswith("http"):
-            clean_url = "https://" + clean_url
-
-    results = []
-    # 1 Photos, 2 Videos, 3 Stories, 4 Highlights,
-    # 5 Photos+Videos, 6 Stories+Highlights, 7 All
-    if choice == "1":
-        results.append(process_photos(
-            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
-        ))
-    elif choice == "2":
-        results.append(process_videos(
-            target_dir, cookies_arg, clean_url, platform, username,
-            progress_obj, active_task_id
-        ))
-    elif choice == "3":
-        results.append(process_stories(
-            target_dir, cookies_arg, platform, username, progress_obj, active_task_id
-        ))
-    elif choice == "4":
-        results.append(process_highlights(
-            target_dir, cookies_arg, platform, username, progress_obj, active_task_id
-        ))
-    elif choice == "5":
-        results.append(process_photos(
-            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
-        ))
-        results.append(process_videos(
-            target_dir, cookies_arg, clean_url, platform, username,
-            progress_obj, active_task_id
-        ))
-    elif choice == "6":
-        results.append(process_stories(
-            target_dir, cookies_arg, platform, username, progress_obj, active_task_id
-        ))
-        results.append(process_highlights(
-            target_dir, cookies_arg, platform, username, progress_obj, active_task_id
-        ))
-    elif choice == "7":
-        results.append(process_photos(
-            target_dir, cookies_arg, clean_url, platform, progress_obj, active_task_id
-        ))
-        results.append(process_videos(
-            target_dir, cookies_arg, clean_url, platform, username,
-            progress_obj, active_task_id
-        ))
-        results.append(process_stories(
-            target_dir, cookies_arg, platform, username, progress_obj, active_task_id
-        ))
-        results.append(process_highlights(
-            target_dir, cookies_arg, platform, username, progress_obj, active_task_id
-        ))
-    return all(r == 0 for r in results)
-
-
-def _prompt_path(label: str, current: Path) -> Path | None:
-    console.print(f"\n[{C['secondary']}]{label}[/{C['secondary']}]")
-    console.print(f"[{C['muted']}]Current: {current}[/{C['muted']}]")
-    console.print(
-        f"[{C['muted']}]Enter a new path, or press Enter to keep the current value."
-        f"[/{C['muted']}]"
-    )
-    raw = Prompt.ask(f"[{C['accent_b']}]>[/{C['accent_b']}]", default="", console=console)
-    raw = raw.strip().strip('"').strip("'")
-    if not raw:
-        return current
-    try:
-        new_path = Path(raw).expanduser().resolve()
-    except Exception as e:
-        console.print(f"[{C['error']}]Invalid path: {e}[/{C['error']}]")
-        return None
-    try:
-        new_path.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        console.print(
-            f"[{C['error']}]Cannot create or access that directory: {e}[/{C['error']}]"
-        )
-        return None
-    return new_path
-
-
-def settings_menu() -> None:
-    global BASE_DIR, COOKIES_DIR, BROWSER, DEBUG_LOG
-
-    if not is_configured():
-        console.print(f"[{C['warning']}]Run Setup first.[/{C['warning']}]")
-        input("\nPress Enter...")
-        return
-
-    while True:
-        clear_screen()
-        body = Text()
-        body.append("  1  ", style=C["accent_b"])
-        body.append("Save directory\n", style=C["secondary"])
-        body.append(f"     {BASE_DIR}\n\n", style=C["muted"])
-        body.append("  2  ", style=C["accent_b"])
-        body.append("Cookies directory\n", style=C["secondary"])
-        body.append(f"     {COOKIES_DIR}\n\n", style=C["muted"])
-        body.append("  3  ", style=C["accent_b"])
-        body.append("Browser\n", style=C["secondary"])
-        body.append(f"     {BROWSER}\n\n", style=C["muted"])
-        body.append("  4  ", style=C["accent_b"])
-        body.append("Setup\n", style=C["secondary"])
-        body.append("  5  ", style=C["accent_b"])
-        body.append("Back\n", style=C["secondary"])
-
-        console.print(Align.center(Panel(
-            body,
-            title=f"[{C['muted']}]Settings[/{C['muted']}]",
-            border_style=C["panel_border"],
-            box=ROUNDED,
-            padding=(1, 2),
-            expand=False
-        )))
-        console.print()
-
-        choice = Prompt.ask(
-            f"[{C['accent_b']}]>[/{C['accent_b']}]",
-            choices=["1", "2", "3", "4", "5"],
-            default="5",
-            show_choices=False,
-            show_default=False,
-            console=console
-        ).strip()
-
-        if choice == "1":
-            new_path = _prompt_path("Save directory", BASE_DIR)
-            if new_path is not None and new_path != BASE_DIR:
-                BASE_DIR = new_path
-                DEBUG_LOG = BASE_DIR / "nami_debug.log"
-                if save_config():
-                    console.print(f"[{C['success']}]Saved.[/{C['success']}]")
-                    ensure_dirs()
-
-        elif choice == "2":
-            new_path = _prompt_path("Cookies directory", COOKIES_DIR)
-            if new_path is not None and new_path != COOKIES_DIR:
-                COOKIES_DIR = new_path
-                if save_config():
-                    console.print(f"[{C['success']}]Saved.[/{C['success']}]")
-                    ensure_dirs()
-
-        elif choice == "3":
-            console.print(f"[{C['muted']}]brave / chrome / edge / firefox[/{C['muted']}]")
-            raw = Prompt.ask(
-                f"[{C['accent_b']}]>[/{C['accent_b']}]",
-                default=BROWSER,
-                console=console
-            ).strip().lower()
-            if raw and raw != BROWSER:
-                BROWSER = raw
-                if save_config():
-                    console.print(f"[{C['success']}]Saved.[/{C['success']}]")
-
-        elif choice == "4":
-            run_setup()
-
-        elif choice == "5":
-            return
-
-
-def run_downloads(choice: str) -> None:
-    if not is_configured():
-        console.print(f"[{C['warning']}]Run Setup first.[/{C['warning']}]")
-        input("\nPress Enter...")
-        return
-
-    if not ensure_dirs():
-        input("\nPress Enter to continue...")
-        return
-
-    original_cwd = Path.cwd()
-    try:
-        os.chdir(BASE_DIR)
-    except OSError as e:
-        console.print(
-            f"[{C['error']}][ERROR] Cannot change to save directory {BASE_DIR}: {e}"
-            f"[/{C['error']}]"
-        )
-        input("\nPress Enter to continue...")
-        return
-
-    platforms = list(PLATFORMS)
-    total_profiles = 0
-    profiles_to_process = []
-
-    for plat in platforms:
-        profile_file = PROFILES_DIR / f"{plat}_profiles.txt"
-        if not profile_file.exists():
-            continue
-        try:
-            with open(profile_file, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    line_stripped = line.strip()
-                    if (not line_stripped
-                            or line_stripped.startswith("#")
-                            or line_stripped.startswith(";")):
-                        continue
-                    username = parse_url(line_stripped, plat)
-                    if username and username != "INVALID_URL":
-                        total_profiles += 1
-                        profiles_to_process.append((plat, username, line_stripped))
-                    elif username == "INVALID_URL":
-                        console.print(
-                            f"[{C['warning']}]-> [SKIP] Invalid or mismatched platform "
-                            f"URL: {line_stripped}[/{C['warning']}]"
-                        )
-                    else:
-                        console.print(
-                            f"[{C['warning']}]-> [SKIP] Could not parse username from: "
-                            f"{line_stripped}[/{C['warning']}]"
-                        )
-        except OSError as e:
-            console.print(
-                f"[{C['error']}][ERROR] Cannot read {profile_file.name}: {e}"
-                f"[/{C['error']}]"
-            )
-
-    if total_profiles == 0:
-        console.print(
-            f"[{C['warning']}]No valid profiles found under:[/{C['warning']}]"
-        )
-        console.print(f"  [{C['muted']}]{PROFILES_DIR}[/{C['muted']}]")
-        console.print(
-            f"[{C['muted']}]Add profile URLs to the .txt files in that folder."
-            f"[/{C['muted']}]"
-        )
-        input("\nPress Enter to continue...")
-        return
-
-    progress = Progress(
-        SpinnerColumn(style=C["accent_b"]),
-        TextColumn(f"[{C['primary']}]{{task.description}}[/{C['primary']}]"),
-        TextColumn("|"),
-        TextColumn("{task.fields[status]}", justify="left"),
-        BarColumn(
-            bar_width=20,
-            complete_style=C["bar_complete"],
-            finished_style=C["bar_complete"]
-        ),
-        TaskProgressColumn(
-            text_format=f"[{C['accent_b']}]{{task.percentage:>3.0f}}%[/{C['accent_b']}]"
-        ),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        console=console
-    )
-
-    overall_task = progress.add_task(
-        f"[{C['primary']}]Overall Progress[/{C['primary']}]",
-        total=total_profiles, status=""
-    )
-    active_task = progress.add_task(
-        f"[{C['primary']}]Active Download[/{C['primary']}]",
-        total=None, status="Waiting...", visible=False
-    )
-
-    header_printed: set[str] = set()
-    failed_profiles: list[str] = []
-
-    try:
-        with progress:
-            for plat, username, original_line in profiles_to_process:
-                if plat not in header_printed:
-                    header = "X/TWITTER" if plat == "x" else plat.upper()
-                    progress.console.print(
-                        f"\n[{C['accent_b']}]# {header}[/{C['accent_b']}]"
-                    )
-                    header_printed.add(plat)
-
-                progress.console.print(
-                    f" [{C['primary']}]-> {username}[/{C['primary']}]"
-                )
-                progress.update(
-                    active_task,
-                    description=(
-                        f"[{C['primary']}]{plat.upper()}: {username}[/{C['primary']}]"
-                    ),
-                    completed=0,
-                    total=None,
-                    status="Initializing...",
-                    visible=True
-                )
-
+            settings = repo.load()
+        except ConfigError as error:
+            warning = ui.Text("Configuration error: ", style="error")
+            warning.append(str(error))
+            output.print(warning)
+            settings = settings_for_root(repo.home, config_file=repo.path)
+
+        while True:
+            configured = settings if ui.workspace_ready(settings) else None
+            choice = ui.prompt_main_menu(output, configured, __version__)
+            if choice == "0":
+                output.print(ui.Text("Bye.", style="muted"))
+                return 0
+            if configured is None:
                 try:
-                    success = download_profile(
-                        username, BASE_DIR / plat / username, plat,
-                        original_line, choice, progress, active_task
-                    )
-                    if not success:
-                        failed_profiles.append(f"{plat.upper()}: {username}")
-                except Exception as e:
-                    log_debug(f"profile {plat}/{username}", e)
-                    failed_profiles.append(f"{plat.upper()}: {username} (crashed)")
-                    progress.console.print(
-                        f" [{C['error']}][ERROR] Profile crashed: {e}[/{C['error']}]"
-                    )
+                    settings = ui.run_setup_prompt(repo, output)
+                except ConfigError as error:
+                    message = ui.Text("Setup failed: ", style="error")
+                    message.append(str(error))
+                    output.print(message)
+                continue
+            if choice == "8":
+                settings = ui.run_settings_menu(repo, settings, output)
+                continue
 
-                progress.advance(overall_task, 1)
-                progress.update(active_task, visible=False)
+            targets, profile_errors = load_profile_targets(settings)
+            if profile_errors:
+                ui.render_profile_errors(profile_errors, output)
+            if not targets:
+                output.print(ui.Text(f"No valid profiles found under {settings.profiles_dir}", style="warning"))
+                ui.pause(output)
+                continue
 
-            progress.update(
-                overall_task,
-                status=f"[{C['accent_b']}]Complete![/{C['accent_b']}]"
-            )
+            service = create_default_service(event_sink=ui.RichEventSink(output))
+            request = DownloadRequest(tuple(targets), _MENU_MEDIA[choice], settings)
+            batch = service.execute(request)
+            ui.render_batch_result(batch, output)
+            ui.pause(output)
+    except ui.PromptCancelled as cancellation:
+        output.print(ui.Text("Cancelled.", style="warning"))
+        return cancellation.exit_code
     except KeyboardInterrupt:
-        console.print(f"\n[{C['error']}][INFO] Cancelled by user.[/{C['error']}]")
-        return
+        output.print(ui.Text("Cancelled.", style="warning"))
+        return 130
 
-    console.print()
-    if failed_profiles:
-        console.print(Panel(
-            Align.center(
-                f"[{C['warning']}]Downloads completed with some errors:\n"
-                + ", ".join(failed_profiles)
-                + f"[/{C['warning']}]"
-            ),
-            border_style="yellow",
-            title=f"[{C['warning']}]Warnings[/{C['warning']}]"
-        ))
-    else:
-        console.print(Panel(
-            Align.center(
-                f"[{C['success']}]All downloads finished successfully![/{C['success']}]"
-            ),
-            border_style=C["panel_border"]
-        ))
 
-    # Restore original working directory (H-4)
+def _run_setup(arguments: argparse.Namespace) -> int:
+    repository = ConfigRepository()
     try:
-        os.chdir(original_cwd)
-    except Exception:
-        pass
+        root = arguments.root.expanduser().resolve()
+        if root.exists() and not root.is_dir():
+            raise ConfigError(f"setup root is not a directory: {root}")
+        settings = settings_for_root(root, config_file=repository.path)
+        initialize_workspace(settings, create_cookie_templates=arguments.cookie_templates)
+        repository.save(settings)
+    except (ConfigError, OSError) as error:
+        return _emit_error(str(error), json_mode=arguments.json)
 
-    input("\nPress Enter to continue...")
-
-
-def show_main_menu() -> str:
-    clear_screen()
-    configured = is_configured()
-    menu_text = Text()
-
-    if not configured:
-        # First launch only — Setup lives here until config exists
-        options = [
-            ("1", "Setup"),
-            ("0", "Exit"),
-        ]
-        choices = ["0", "1"]
-        default = "1"
+    payload = _settings_payload(settings)
+    payload["cookie_templates"] = bool(arguments.cookie_templates)
+    if arguments.json:
+        _write_json(payload)
     else:
-        menu_text.append("What do you want to download?\n\n", style=C["primary"])
-        options = [
-            ("1", "Photos only"),
-            ("2", "Videos only"),
-            ("3", "Stories only"),
-            ("4", "Highlights only"),
-            ("5", "Photos + Videos"),
-            ("6", "Stories + Highlights"),
-            ("7", "All"),
-            ("8", "Settings"),
-            ("0", "Exit"),
-        ]
-        choices = ["0", "1", "2", "3", "4", "5", "6", "7", "8"]
-        default = "7"
+        from nami.ui import make_console
 
-    for key, label in options:
-        menu_text.append(f" {key}", style=C["accent_b"])
-        menu_text.append(" ")
-        menu_text.append(f"{label}\n", style=C["secondary"])
-
-    if configured and BASE_DIR is not None:
-        menu_text.append(f"\n Save: {BASE_DIR}", style=C["muted"])
-
-    console.print(Align.center(Panel(
-        menu_text,
-        title=f"[{C['muted']}]* Nami[/{C['muted']}]",
-        subtitle=f"[{C['muted']}]v{__version__}[/{C['muted']}]",
-        title_align="left",
-        subtitle_align="right",
-        border_style=C["panel_border"],
-        box=ROUNDED,
-        padding=(1, 2),
-        expand=False
-    )))
-    console.print()
-
-    return Prompt.ask(
-        f"[{C['accent_b']}]>[/{C['accent_b']}]",
-        choices=choices,
-        default=default,
-        show_choices=False,
-        show_default=False,
-        console=console
-    ).strip()
+        console = make_console()
+        console.print("Nami workspace initialized")
+        console.print(f"Downloads: {settings.base_dir}")
+        console.print(f"Cookies: {settings.cookies_dir}")
+        console.print(f"Profiles: {settings.profiles_dir}")
+        console.print(f"Config: {repository.path}")
+    return 0
 
 
-def main() -> None:
-    if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+def _run_download(arguments: argparse.Namespace) -> int:
+    if not arguments.urls and not arguments.profiles:
+        return _emit_error(
+            "download requires at least one URL or --profiles",
+            json_mode=arguments.json,
+        )
+
+    repository = ConfigRepository()
+    try:
+        settings = _load_configured_settings(repository, initialize=True)
+    except ConfigError as error:
+        return _emit_error(str(error), json_mode=arguments.json)
+
+    platform = Platform(arguments.platform) if arguments.platform else None
+    targets: list[Target] = []
+    url_errors: list[dict[str, object]] = []
+    for raw in arguments.urls:
         try:
-            sys.stdout.reconfigure(encoding="utf-8")
-        except Exception as e:
-            log_debug("stdout.reconfigure", e)
+            targets.append(parse_target(raw, platform))
+        except TargetParseError as error:
+            url_errors.append({"url": raw, "message": str(error)})
+    if url_errors:
+        if arguments.json:
+            _write_json({"error": "invalid target URL", "target_errors": url_errors})
+        else:
+            for error in url_errors:
+                print(
+                    f"Target error: {error['url']}: {error['message']}",
+                    file=sys.stderr,
+                )
+        return 2
 
-    load_config()
-    check_environment()
+    profile_errors: list[TargetParseError] = []
+    if arguments.profiles:
+        selected = None if platform is None else (platform,)
+        loaded, profile_errors = load_profile_targets(settings, selected)
+        targets.extend(loaded)
 
-    while True:
-        configured = is_configured()
-        choice = show_main_menu()
+    targets = _deduplicate_targets(targets)
+    serialized_profile_errors = [_profile_error_payload(error) for error in profile_errors]
+    if not targets:
+        payload: dict[str, object] = {
+            "error": "no valid targets were found",
+            "profile_errors": serialized_profile_errors,
+        }
+        if arguments.json:
+            _write_json(payload)
+        else:
+            for error in profile_errors:
+                _print_profile_error(error)
+            print("Error: no valid targets were found", file=sys.stderr)
+        return 2
 
-        if choice == "0":
-            console.print(f"[{C['muted']}]Bye.[/{C['muted']}]")
-            break
+    if profile_errors and not arguments.json:
+        for error in profile_errors:
+            _print_profile_error(error)
 
-        # First launch: only Setup is available
-        if not configured:
-            if choice == "1":
-                run_setup()
+    if arguments.json:
+        event_sink = NullEventSink()
+    else:
+        from nami.ui import RichEventSink, make_console
+
+        event_sink = RichEventSink(make_console())
+
+    service = create_default_service(event_sink=event_sink)
+    request = DownloadRequest(tuple(targets), arguments.media, settings)
+    try:
+        batch = service.execute(request)
+    except KeyboardInterrupt:
+        if arguments.json:
+            _write_json({"error": "download cancelled", "exit_code": 130})
+        else:
+            print("Download cancelled", file=sys.stderr)
+        return 130
+
+    exit_code = batch.exit_code()
+    if arguments.json:
+        payload = batch.to_dict()
+        payload["profile_errors"] = serialized_profile_errors
+        payload["exit_code"] = exit_code
+        _write_json(payload)
+    else:
+        from nami.ui import make_console, render_batch_result
+
+        render_batch_result(batch, make_console())
+    return exit_code
+
+
+def _run_doctor(arguments: argparse.Namespace) -> int:
+    repository = ConfigRepository()
+    config_error: ConfigError | None = None
+    try:
+        settings = repository.load()
+    except ConfigError as error:
+        config_error = error
+        settings = settings_for_root(repository.home, config_file=repository.path)
+
+    report = run_doctor(settings, config_error=config_error)
+    if arguments.json:
+        _write_json(report.to_dict())
+    else:
+        from nami.ui import make_console, render_doctor_report
+
+        render_doctor_report(report, make_console())
+    return report.exit_code()
+
+
+def _run_config(arguments: argparse.Namespace) -> int:
+    repository = ConfigRepository()
+    try:
+        settings = repository.load()
+        action = arguments.config_command
+        if action == "show":
+            return _show_config(settings, json_mode=arguments.json)
+        if action == "get":
+            return _get_config(settings, arguments.key, json_mode=arguments.json)
+        if action == "set":
+            candidate = _replace_config_value(settings, arguments.key, arguments.value)
+            repository.save(candidate)
+            return _config_changed(
+                arguments.key,
+                getattr(candidate, arguments.key),
+                reset=False,
+                json_mode=arguments.json,
+            )
+
+        candidate = _unset_config_value(settings, arguments.key, repository.home)
+        repository.save(candidate)
+        return _config_changed(
+            arguments.key,
+            getattr(candidate, arguments.key),
+            reset=True,
+            json_mode=arguments.json,
+        )
+    except (ConfigError, OSError, ValueError) as error:
+        return _emit_error(str(error), json_mode=arguments.json)
+
+
+def _run_archive_reset(arguments: argparse.Namespace) -> int:
+    if arguments.all_archives and any((arguments.platform, arguments.target, arguments.media)):
+        return _emit_error(
+            "--all cannot be combined with --platform, --target, or --media",
+            json_mode=arguments.json,
+        )
+    if not arguments.all_archives and not any((arguments.platform, arguments.target, arguments.media)):
+        return _emit_error(
+            "archive reset requires a selector or explicit --all",
+            json_mode=arguments.json,
+        )
+    if arguments.target and not _SAFE_TARGET.fullmatch(arguments.target):
+        return _emit_error(
+            "--target must be one safe target directory name",
+            json_mode=arguments.json,
+        )
+
+    repository = ConfigRepository()
+    try:
+        settings = _load_configured_settings(repository, initialize=False)
+        selected = _select_archives(
+            settings.base_dir,
+            platform=arguments.platform,
+            target=arguments.target,
+            media=arguments.media,
+            all_archives=arguments.all_archives,
+        )
+        effective_dry_run = bool(arguments.dry_run or not arguments.yes)
+        actions = _reset_selected_archives(
+            settings.base_dir,
+            selected,
+            delete=arguments.delete,
+            dry_run=effective_dry_run,
+        )
+    except (ArchiveError, ConfigError, OSError, ValueError) as error:
+        return _emit_error(str(error), json_mode=arguments.json)
+
+    payload = {
+        "confirmed": bool(arguments.yes),
+        "dry_run": effective_dry_run,
+        "delete": bool(arguments.delete),
+        "actions": [_archive_reset_payload(action) for action in actions],
+    }
+    if arguments.json:
+        _write_json(payload)
+    else:
+        if not arguments.yes:
+            print("Confirmation not supplied; reporting a dry run only.")
+        if not actions:
+            print("No matching archives found.")
+        for action in actions:
+            verb = "delete" if action.deleted else "back up"
+            destination = "" if action.destination is None else f" -> {action.destination}"
+            prefix = "Would" if action.dry_run else "Did"
+            print(f"{prefix} {verb}: {action.source}{destination}")
+    return 0
+
+
+def _parse_media(value: str) -> tuple[MediaKind, ...]:
+    raw = value.strip().lower()
+    if raw == "all":
+        return tuple(MediaKind)
+    parts = raw.split(",")
+    if not parts or any(not part or part != part.strip() for part in parts):
+        raise argparse.ArgumentTypeError("media must be a comma-separated list without empty values")
+    try:
+        parsed = tuple(MediaKind(part) for part in parts)
+    except ValueError as error:
+        allowed = ",".join(item.value for item in MediaKind)
+        raise argparse.ArgumentTypeError(f"media must contain only {allowed}, or all") from error
+    if len(set(parsed)) != len(parsed):
+        raise argparse.ArgumentTypeError("media values must not be repeated")
+    return parsed
+
+
+def _load_configured_settings(repository: ConfigRepository, *, initialize: bool) -> Settings:
+    configured = repository.path.exists() or any(
+        key in repository.environ
+        for key in (
+            "NAMI_BASE_DIR",
+            "NAMI_COOKIES_DIR",
+            "NAMI_PROFILES_DIR",
+        )
+    )
+    if not configured:
+        raise ConfigError("Nami is not configured; run 'nami setup --root PATH' first")
+    settings = repository.load()
+    if initialize:
+        initialize_workspace(settings, create_cookie_templates=False)
+    return settings
+
+
+def _deduplicate_targets(targets: list[Target]) -> list[Target]:
+    result: list[Target] = []
+    seen: set[tuple[Platform, str]] = set()
+    for target in targets:
+        identity = (target.platform, target.canonical_url)
+        if identity not in seen:
+            seen.add(identity)
+            result.append(target)
+    return result
+
+
+def _profile_error_payload(error: TargetParseError) -> dict[str, object]:
+    return {
+        "message": str(error),
+        "source": None if error.source is None else str(error.source),
+        "line_number": error.line_number,
+        "raw": error.raw,
+    }
+
+
+def _print_profile_error(error: TargetParseError) -> None:
+    location = ""
+    if error.source is not None:
+        location = str(error.source)
+        if error.line_number is not None:
+            location += f":{error.line_number}"
+        location += ": "
+    print(f"Profile error: {location}{error}", file=sys.stderr)
+
+
+def _settings_payload(settings: Settings) -> dict[str, object]:
+    return {
+        "base_dir": str(settings.base_dir),
+        "cookies_dir": str(settings.cookies_dir),
+        "profiles_dir": str(settings.profiles_dir),
+        "browser": settings.browser,
+        "user_agent": settings.user_agent,
+        "timeout_seconds": settings.timeout_seconds,
+        "config_file": str(settings.config_file),
+    }
+
+
+def _show_config(settings: Settings, *, json_mode: bool) -> int:
+    payload = _settings_payload(settings)
+    if json_mode:
+        _write_json(payload)
+    else:
+        from nami.ui import Text, make_console
+
+        console = make_console()
+        for key in _CONFIG_KEYS:
+            line = Text(f"{key} = ")
+            line.append(str(payload[key]))
+            console.print(line)
+    return 0
+
+
+def _get_config(settings: Settings, key: str, *, json_mode: bool) -> int:
+    value = getattr(settings, key)
+    rendered = str(value)
+    if json_mode:
+        _write_json({"key": key, "value": value if isinstance(value, int) else rendered})
+    else:
+        print(rendered)
+    return 0
+
+
+def _replace_config_value(settings: Settings, key: str, raw: str) -> Settings:
+    if key in {"base_dir", "cookies_dir", "profiles_dir"}:
+        if not raw.strip():
+            raise ConfigError(f"{key} must not be empty")
+        value: object = Path(raw).expanduser().resolve()
+    elif key == "timeout_seconds":
+        try:
+            value = int(raw)
+        except ValueError as error:
+            raise ConfigError("timeout_seconds must be an integer") from error
+        if str(value) != raw.strip():
+            raise ConfigError("timeout_seconds must be an integer")
+    else:
+        value = raw
+    return replace(settings, **{key: value})
+
+
+def _unset_config_value(settings: Settings, key: str, home: Path) -> Settings:
+    defaults = settings_for_root(home, config_file=settings.config_file)
+    values: dict[str, object] = {
+        "base_dir": defaults.base_dir,
+        "cookies_dir": settings.base_dir.parent / "cookies",
+        "profiles_dir": settings.base_dir.parent / "profiles",
+        "browser": DEFAULT_BROWSER,
+        "user_agent": DEFAULT_USER_AGENT,
+        "timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
+    }
+    return replace(settings, **{key: values[key]})
+
+
+def _config_changed(key: str, value: object, *, reset: bool, json_mode: bool) -> int:
+    rendered: object = value if isinstance(value, int) else str(value)
+    if json_mode:
+        _write_json({"key": key, "value": rendered, "reset": reset})
+    elif reset:
+        print(f"Reset {key} to its default/derived value: {rendered}")
+    else:
+        print(f"Set {key} to {rendered}")
+    return 0
+
+
+def _select_archives(
+    base_dir: Path,
+    *,
+    platform: str | None,
+    target: str | None,
+    media: str | None,
+    all_archives: bool,
+) -> tuple[Path, ...]:
+    archives = discover_archives(base_dir)
+    if all_archives:
+        return archives
+    media_directory = None if media is None else _MEDIA_DIRECTORIES[MediaKind(media)]
+    selected: list[Path] = []
+    root = base_dir.expanduser().resolve()
+    for archive in archives:
+        parts = archive.parent.relative_to(root).parts
+        if platform is not None and (not parts or parts[0] != platform):
             continue
-
-        if choice == "8":
-            settings_menu()
+        if target is not None and (len(parts) < 2 or parts[1] != target):
             continue
+        if media_directory is not None and (len(parts) < 3 or parts[2] != media_directory):
+            continue
+        selected.append(archive)
+    return tuple(selected)
 
-        console.print(f"[{C['accent_b']}]Mode: {choice}[/{C['accent_b']}]")
-        console.print()
-        run_downloads(choice)
+
+def _reset_selected_archives(
+    base_dir: Path,
+    archives: tuple[Path, ...],
+    *,
+    delete: bool,
+    dry_run: bool,
+) -> tuple[ArchiveReset, ...]:
+    root = base_dir.expanduser().resolve()
+    actions: list[ArchiveReset] = []
+    for archive in archives:
+        selector = archive.parent.relative_to(root).as_posix()
+        resets = reset_archives(
+            root,
+            selector,
+            delete=delete,
+            dry_run=dry_run,
+        )
+        for reset in resets:
+            if reset.source == archive:
+                actions.append(reset)
+    return tuple(actions)
+
+
+def _archive_reset_payload(action: ArchiveReset) -> dict[str, object]:
+    return {
+        "source": str(action.source),
+        "destination": None if action.destination is None else str(action.destination),
+        "deleted": action.deleted,
+        "dry_run": action.dry_run,
+    }
+
+
+def _add_json_option(parser: argparse.ArgumentParser, *, suppress_default: bool = False) -> None:
+    default: object = argparse.SUPPRESS if suppress_default else False
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=default,
+        help="write one JSON result",
+    )
+
+
+def _emit_error(message: str, *, json_mode: bool) -> int:
+    if json_mode:
+        _write_json({"error": message})
+    else:
+        print(f"Error: {message}", file=sys.stderr)
+    return 2
+
+
+def _write_json(payload: object) -> None:
+    json.dump(payload, sys.stdout, ensure_ascii=False, allow_nan=False)
+    sys.stdout.write("\n")
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

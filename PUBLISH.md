@@ -7,7 +7,7 @@ Nami uses **GitHub Trusted Publishing** (OIDC) for safe, passwordless automated 
 ## 1. Initial One-Time Setup
 
 ### A. Configure GitHub Environment
-1. Go to your GitHub repo: **Settings → Environments**.
+1. Go to your GitHub repository: **Settings → Environments**.
 2. Click **New environment**.
 3. Name it: `pypi`.
 4. Click **Configure environment** and save.
@@ -31,40 +31,65 @@ Now that Trusted Publishing is configured:
 
 ---
 
-## 2. How to Release a New Version Later
+## 2. Release Procedure
 
 When you are ready to publish a new release:
 
-1. **Bump Version Numbers**:
-   Update the version string in:
-   - `pyproject.toml` (`version = "X.Y.Z"`)
-   - `src/nami/__init__.py` (`__version__ = "X.Y.Z"`)
-   - `src/nami/cli.py` (`__version__ = "X.Y.Z"`)
+### 1. Pre-flight Quality & Validation Checks
+Run all local release-grade checks before committing:
 
-2. **Commit & Push to GitHub**:
-   ```bash
-   git add .
-   git commit -m "Bump version to X.Y.Z"
-   git push origin main
-   ```
+```bash
+# Run test suite
+pytest
 
-3. **Publish a Release on GitHub**:
-   - Go to your repository on GitHub: **Releases → Draft a new release**.
-   - Create a new tag (e.g., `vX.Y.Z`).
-   - Title your release and click **Publish release**.
+# Run code style & formatting checks
+ruff check src tests
+ruff format --check src tests
 
-4. **Automated Deployment**:
-   GitHub Actions will automatically trigger `.github/workflows/publish.yml`, build the package, and publish it securely to PyPI without needing any API tokens or secrets.
+# Build distribution packages
+python -m build
+
+# Validate package distribution artifacts
+twine check dist/*
+check-wheel-contents dist/*.whl
+```
+
+### 2. Update Version Number
+Update the single source of truth version string in `pyproject.toml`:
+```toml
+[project]
+name = "nami"
+version = "X.Y.Z"
+```
+
+*(Note: `src/nami/__init__.py` dynamically resolves the installed distribution version using standard `importlib.metadata`).*
+
+### 3. Commit & Push to GitHub
+```bash
+git add .
+git commit -m "chore(release): bump version to X.Y.Z"
+git push origin main
+```
+
+### 4. Create & Publish GitHub Release
+- Go to your repository on GitHub: **Releases → Draft a new release**.
+- Create a new tag (e.g., `vX.Y.Z`).
+- Title your release (e.g., `vX.Y.Z - Release Title`) and describe highlights.
+- Click **Publish release**.
+
+### 5. Automated Deployment
+GitHub Actions will automatically trigger `.github/workflows/publish.yml`, verify artifacts, build distributions, and publish securely to PyPI via OIDC Trusted Publishing without needing stored secrets or passwords.
 
 ---
 
 ## 3. Manual Fallback (Optional Local Upload)
 
-If you ever need to publish manually from your machine:
+If you ever need to publish manually from your local development environment:
 
 ```bash
-python -m pip install --upgrade build twine
+python -m pip install --upgrade build twine check-wheel-contents
 python -m build
-python -m twine upload dist/*
+twine check dist/*
+twine upload dist/*
 ```
 *(When prompted, set username to `__token__` and password to an active PyPI API token).*

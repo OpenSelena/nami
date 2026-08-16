@@ -5,9 +5,24 @@ venv/
 dist/
 build/
 *.egg-info/
-.nami/
-nami_config.json
+/Nami/
+/.nami/
+/nami_config.json
 *.log
 .vscode/
 .idea/
 .DS_Store
+.env*
+!.env.example
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+coverage.xml
+htmlcov/
+*.bak
+archive.lock
+# Cookie credential files in workspace (not in tests)
+Nami/cookies/

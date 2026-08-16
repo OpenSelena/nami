@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0,<85"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "nami"
-version = "3.0.4"
+version = "4.0.0"
 description = "An open-source CLI media downloader for Instagram, TikTok, Facebook, and X"
 readme = "README.md"
 authors = [
@@ -26,6 +26,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Video",
     "Topic :: Multimedia :: Graphics",
     "Topic :: Utilities",
@@ -36,8 +38,38 @@ Homepage = "https://github.com/OpenSelena/nami"
 Repository = "https://github.com/OpenSelena/nami.git"
 "Bug Tracker" = "https://github.com/OpenSelena/nami/issues"
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.8.0",
+    "build>=1.0.0",
+    "twine>=5.0",
+    "check-wheel-contents>=0.6.0",
+    "pip-audit>=2.7.0",
+]
+
 [project.scripts]
 nami = "nami.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+nami = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "PIE", "RUF", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+

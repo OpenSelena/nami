@@ -4,16 +4,16 @@
 
 ### *An open-source CLI media downloader for Instagram, TikTok, Facebook, and X*
 
-[![PyPI Version](https://img.shields.io/pypi/v/nami.svg?color=D97757&style=for-the-badge)](https://pypi.org/project/nami/)
+[![CI](https://img.shields.io/github/actions/workflow/status/OpenSelena/nami/ci.yml?branch=main&style=for-the-badge&logo=github&label=CI)](https://github.com/OpenSelena/nami/actions/workflows/ci.yml)
+[![PyPI Version](https://img.shields.io/pypi/v/nami.svg?color=D97757&style=for-the-badge&logo=pypi&logoColor=white)](https://pypi.org/project/nami/)
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://pypi.org/project/nami/)
-[![License](https://img.shields.io/pypi/l/nami?style=for-the-badge&color=2e7d32)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/OpenSelena/nami?style=for-the-badge&color=D97757)](https://github.com/OpenSelena/nami)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2e7d32.svg?style=for-the-badge)](LICENSE)
 
 <p align="center">
-  <b>Nami</b> is a lightweight, open-source media downloader designed for seamless batch extraction across social platforms. Combining <b>gallery-dl</b> and <b>yt-dlp</b> with an interactive <b>Rich terminal interface</b>, Nami automates deduplication, rate-limit retries, and browser cookie handling.
+  <b>Nami</b> is a high-performance, modular CLI and interactive media downloader for Instagram, TikTok, Facebook, and X (Twitter). Powered by <b>gallery-dl</b> and <b>yt-dlp</b> engines with a modern <b>Rich terminal UI</b>, Nami provides dual-engine fallback, anti-duplicate archiving, automated cookie management, health doctor diagnostics, and machine-readable JSON workflows.
 </p>
 
-[Installation](#installation) • [Usage Flow](#usage-flow) • [Supported Platforms](#supported-platforms) • [Directory Layout](#1-project-workspace-initializer) • [Configuration](#configuration)
+[Installation](#installation) • [Quickstart](#quickstart) • [CLI Commands](#cli-commands-reference) • [Platform Matrix](#supported-platforms) • [Configuration](#configuration--environment-variables) • [Development](#development--testing)
 
 </div>
 
@@ -21,37 +21,38 @@
 
 ## Features
 
-- **Photos & Videos**: Batch download high-resolution photos, reels, videos, and posts.
-- **Instagram Stories & Highlights**: Extract stories and highlight archives automatically.
-- **Smart Anti-Duplicate Archiving**: Automatic `archive.txt` tracking avoids re-downloading existing media.
-- **Automated Cookie Integration**: Supports Netscape cookie files and browser session extraction (`--cookies-from-browser`).
-- **Cookie Fallback & Retry Logic**: Automatically attempts anonymous fallbacks and handles rate-limits gracefully.
-- **Terminal UI**: Powered by `rich` with customizable contrast themes (`light` / `dark`).
+- **Multi-Platform Batch Downloads**: Extract high-resolution photos, videos, reels, posts, stories, and highlights.
+- **Dual-Engine Architecture**: Intelligently routes tasks between `gallery-dl` and `yt-dlp` with automatic fallback on extractor failures.
+- **Interactive & Headless Modes**: Run interactively with an intuitive terminal UI or integrate into headless pipelines with dedicated CLI subcommands and `--json` output.
+- **Smart Anti-Duplicate Archiving**: Maintains per-target `archive.txt` records to avoid redundant re-downloads, with safe `archive reset` management.
+- **Flexible Authentication**: Supports Netscape cookie files, anonymous fallbacks, and direct browser cookie extraction (`--cookies-from-browser`).
+- **Resilient Retry Policy**: Exponential jittered backoff for transient network errors, immediate rate-limit handling, and process isolation.
+- **Built-in Doctor**: Run `nami doctor` to verify local binaries, browser installations, cookie permissions, and workspace health.
 
 ---
 
 ## Supported Platforms
 
-| Platform | Photos | Videos | Stories | Highlights | Authentication Mode | Status |
-| :--- | :---: | :---: | :---: | :---: | :--- | :---: |
-| **Instagram** | Included | Included | Included | Included | Netscape Cookie / Anonymous | Active |
-| **TikTok** | Included | Included | N/A | N/A | Browser DB / Netscape Cookie | Active |
-| **Facebook** | Included | Included | N/A | N/A | Netscape Cookie / Anonymous | Active |
-| **X (Twitter)** | Included | Included | N/A | N/A | Netscape Cookie / Anonymous | Active |
+| Platform | Photos | Videos / Reels | Stories | Highlights | Auth Support | Primary Engine |
+| :--- | :---: | :---: | :---: | :---: | :--- | :--- |
+| **Instagram** | Included | Included | Included | Included | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
+| **TikTok** | Included | Included | N/A | N/A | Browser DB / Netscape Cookie | `yt-dlp` / `gallery-dl` |
+| **Facebook** | Included | Included | N/A | N/A | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
+| **X (Twitter)** | Included | Included | N/A | N/A | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
 
 ---
 
 ## Installation
 
-Install `nami` directly via `pip`:
+Install `nami` via `pip`:
 
 ```bash
 pip install nami
 ```
 
-*All dependencies (`rich`, `gallery-dl`, `yt-dlp`) are automatically installed.*
+*Dependencies (`rich`, `gallery-dl`, `yt-dlp`) are automatically installed.*
 
-To upgrade to the latest release:
+To upgrade to the latest version:
 
 ```bash
 pip install -U nami
@@ -59,37 +60,10 @@ pip install -U nami
 
 ---
 
-## Usage Flow
+## Quickstart
 
-### 1. Project Workspace Initializer
-When you launch `nami` for the first time, it automatically creates your local workspace structure:
-
-```text
-Nami/
-├── downloads/      # Extracted media organized by platform & account
-├── cookies/        # Optional Netscape cookie files (*_cookies.txt)
-└── profiles/       # Target account URL text files (*_profiles.txt)
-```
-
-### 2. Configure Profile Sources
-Add your target account URLs into the designated text files inside `Nami/profiles/`:
-
-```text
-Nami/profiles/
-├── instagram_profiles.txt  # Add Instagram profile URLs (one per line)
-├── tiktok_profiles.txt     # Add TikTok profile URLs
-├── facebook_profiles.txt   # Add Facebook profile URLs
-└── x_profiles.txt          # Add X / Twitter profile URLs
-```
-
-### 3. Session Authentication
-Place Netscape-formatted cookie files inside `Nami/cookies/` to download private content or bypass login restrictions:
-- `instagram.com_cookies.txt`
-- `facebook.com_cookies.txt`
-- `x.com_cookies.txt`
-
-### 4. Interactive Execution & Filtering
-Launch the application to run batch downloads across your configured profile lists:
+### 1. Interactive Mode
+Run `nami` without arguments to launch the interactive terminal UI:
 
 ```bash
 nami
@@ -111,31 +85,157 @@ nami
 └──────────────────────────────────────────────────────┘
 ```
 
+On first launch, Nami guides you through workspace initialization.
+
+### 2. Workspace Layout
+Nami organizes downloads, cookie files, and target profile lists cleanly:
+
+```text
+Nami/
+├── downloads/      # Extracted media organized by platform, account & kind
+├── cookies/        # Optional Netscape cookie files (*_cookies.txt)
+└── profiles/       # Target profile URLs (*_profiles.txt)
+```
+
+---
+
+## CLI Commands Reference
+
+Nami provides a full suite of scriptable subcommands for headless and automated pipelines:
+
+### `nami setup`
+Initialize a Nami workspace directory structure and configuration:
+
+```bash
+# Initialize workspace under current directory
+nami setup --root .
+
+# Initialize with template cookie files
+nami setup --root /path/to/workspace --cookie-templates
+
+# Output JSON report
+nami setup --root . --json
+```
+
+### `nami download`
+Download specific target URLs or batch profiles:
+
+```bash
+# Download direct URLs
+nami download https://www.instagram.com/p/DAEXAMPLE123/ https://x.com/OpenAI/status/123456
+
+# Batch download all configured profile files
+nami download --profiles
+
+# Filter by platform and specific media kinds
+nami download --profiles --platform instagram --media stories,highlights
+nami download https://www.tiktok.com/@creator --media videos
+
+# Machine-readable JSON output
+nami download --profiles --json
+```
+
+*Media kinds options:* `photos`, `videos`, `stories`, `highlights`, `all` (or comma-separated list).
+
+### `nami doctor`
+Inspect system health, engine availability, browser installations, and workspace configuration:
+
+```bash
+nami doctor
+nami doctor --json
+```
+
+### `nami config`
+Inspect and update persistent configuration settings:
+
+```bash
+# Show all active settings
+nami config show
+
+# Get a specific setting value
+nami config get browser
+nami config get base_dir
+
+# Set a setting value
+nami config set browser chrome
+nami config set timeout_seconds 600
+
+# Reset a setting to its default/derived value
+nami config unset browser
+```
+
+*Configurable keys:* `base_dir`, `cookies_dir`, `profiles_dir`, `browser`, `user_agent`, `timeout_seconds`.
+
+### `nami archive reset`
+Safely manage download tracking archives to enable re-downloading media:
+
+```bash
+# Preview archives that would be reset
+nami archive reset --platform instagram --dry-run
+
+# Back up archives for a specific profile (creates timestamped .bak)
+nami archive reset --platform instagram --target nasa --yes
+
+# Reset all archives permanently
+nami archive reset --all --delete --yes
+```
+
+---
+
+## Authentication & Cookies
+
+To access private content, high-resolution stories, or avoid login walls:
+
+1. **Netscape Cookie Files**: Place cookie text files inside your configured `cookies_dir`:
+   - `instagram.com_cookies.txt` (or `instagram_cookies.txt`)
+   - `facebook.com_cookies.txt` (or `facebook_cookies.txt`)
+   - `x.com_cookies.txt` (or `x_cookies.txt`, `twitter.com_cookies.txt`)
+   - `tiktok.com_cookies.txt` (or `tiktok_cookies.txt`)
+2. **Browser Extraction**: Set `browser` (`brave`, `chrome`, `edge`, `firefox`) via `nami config set browser <name>` or `NAMI_BROWSER` environment variable.
+
 ---
 
 ## Configuration & Environment Variables
 
-User settings are saved automatically in `~/.nami/nami_config.json`. You can also configure Nami via environment variables:
+Settings are saved in `~/.nami/nami_config.json`. You can override defaults using environment variables:
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `NAMI_THEME` | Terminal theme styling (`dark` or `light`) | `dark` |
-| `NAMI_BASE_DIR` | Custom output downloads directory path | Configured path |
-| `NAMI_COOKIES_DIR` | Custom Netscape cookie directory path | Configured path |
-| `NAMI_PROFILES_DIR` | Custom profile text files directory path | Configured path |
+| `NAMI_BASE_DIR` | Custom output downloads directory path | `~/Nami/downloads` |
+| `NAMI_COOKIES_DIR` | Custom Netscape cookie directory path | `~/Nami/cookies` |
+| `NAMI_PROFILES_DIR` | Custom profile text files directory path | `~/Nami/profiles` |
 | `NAMI_BROWSER` | Browser for automated cookie extraction (`brave`, `chrome`, `edge`, `firefox`) | `brave` |
-| `NAMI_USER_AGENT` | Custom HTTP User-Agent string for request headers | Chrome 131 standard string |
-| `NAMI_SKIP_ENV_CHECK` | Set to `1` to skip initial dependency verification | `0` |
+| `NAMI_USER_AGENT` | Custom HTTP User-Agent string | Standard Chrome string |
+| `NAMI_TIMEOUT_SECONDS` | Child engine process execution timeout in seconds | `900` |
+| `NAMI_THEME` | Terminal UI theme (`dark` or `light`) | `dark` |
+| `NAMI_SKIP_ENV_CHECK` | Set to `1` to bypass startup binary presence check | `0` |
 
-### Customizing Theme Contrast
-Adjust terminal theme styling by setting `NAMI_THEME`:
+---
+
+## Development & Testing
+
+Clone the repository and install dev dependencies:
 
 ```bash
-# Light Terminal Theme
-export NAMI_THEME=light
+git clone https://github.com/OpenSelena/nami.git
+cd nami
+pip install -e ".[dev]"
+```
 
-# Dark Terminal Theme (Default)
-export NAMI_THEME=dark
+Run test suite and quality checks:
+
+```bash
+# Run pytest
+pytest
+
+# Run Ruff linter and formatter checks
+ruff check src tests
+ruff format --check src tests
+
+# Build and verify distribution package
+python -m build
+twine check dist/*
+check-wheel-contents dist/*.whl
 ```
 
 ---
