@@ -2,6 +2,19 @@
 
 All notable changes to Nami are documented here.
 
+## [5.0.2] - 2026-08-17
+
+### Added
+- Created `CONTEXT.md` documenting Nami's domain models, ubiquitous glossary, and architectural principles.
+- Added `docs/adr/0001-dual-engine-architecture.md` capturing the dual-engine (`gallery-dl` / `yt-dlp`) routing and fallback architecture.
+- Added Matt Pocock engineering agent configuration (`AGENTS.md`, `docs/agents/issue-tracker.md`, and `docs/agents/domain.md`).
+
+### Quality & Tooling
+- Refactored engine adapters (`gallery-dl`, `yt-dlp`) to use typed `Platform` and `MediaKind` domain property access.
+- Added `mypy` to development dependencies in `pyproject.toml`.
+- Guarded `Console` type annotation with `TYPE_CHECKING` in CLI interactive entrypoint.
+- Aligned `README.md` default timeout documentation (`1800s`) and `SECURITY.md` supported version policy (`5.x`).
+
 ## [5.0.1] - 2026-08-17
 
 ### Architecture and Refactoring

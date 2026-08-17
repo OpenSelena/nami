@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nami"
-version = "5.0.1"
+version = "5.0.2"
 description = "An open-source CLI media downloader for Instagram, TikTok, Facebook, and X"
 readme = "README.md"
 authors = [
@@ -42,6 +42,7 @@ Repository = "https://github.com/OpenSelena/nami.git"
 dev = [
     "pytest>=7.0",
     "ruff>=0.8.0",
+    "mypy>=1.10.0",
     "build>=1.0.0",
     "twine>=5.0",
     "check-wheel-contents>=0.6.0",

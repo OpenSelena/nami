@@ -8,7 +8,7 @@ from collections.abc import Iterable
 
 from nami.auth import auth_cli_args
 from nami.engines.base import EngineAnalysis, EngineRequest
-from nami.models import MediaKind, Target
+from nami.models import MediaKind, Platform, Target
 from nami.process import CommandSpec
 
 _PHOTO_FILTER = "extension in ('jpg','jpeg','png','gif','webp','bmp','jfif','heic','avif','tiff','svg')"
@@ -34,8 +34,8 @@ class GalleryDlEngine:
         self._request_sleep_seconds: float = request_sleep_seconds
 
     def supports(self, target: Target, media: MediaKind) -> bool:
-        platform = target.platform.value if hasattr(target, "platform") and target.platform else ""
-        media_name = getattr(media, "value", str(media))
+        platform = target.platform.value if isinstance(target.platform, Platform) else str(target.platform)
+        media_name = media.value if isinstance(media, MediaKind) else str(media)
         platform_supported = not platform or platform in {
             "facebook",
             "instagram",
@@ -77,7 +77,7 @@ class GalleryDlEngine:
             sleep,
         ]
 
-        media = getattr(request.media, "value", str(request.media))
+        media = request.media.value if isinstance(request.media, MediaKind) else str(request.media)
         if media in {"photo", "photos", "image", "images"}:
             argv.extend(("--filter", _PHOTO_FILTER))
         elif media in {"video", "videos", "reel", "reels"}:

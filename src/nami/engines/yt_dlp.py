@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from nami.auth import auth_cli_args
 from nami.engines.base import EngineAnalysis, EngineRequest
-from nami.models import MediaKind, Target
+from nami.models import MediaKind, Platform, Target
 from nami.process import CommandSpec
 
 _MEDIA_PATH_RE = re.compile(
@@ -46,8 +46,8 @@ class YtDlpEngine:
     name: str = "yt-dlp"
 
     def supports(self, target: Target, media: MediaKind) -> bool:
-        platform = target.platform.value if hasattr(target, "platform") and target.platform else ""
-        media_name = getattr(media, "value", str(media))
+        platform = target.platform.value if isinstance(target.platform, Platform) else str(target.platform)
+        media_name = media.value if isinstance(media, MediaKind) else str(media)
         platform_supported = not platform or platform in {
             "facebook",
             "instagram",
@@ -109,7 +109,7 @@ class YtDlpEngine:
 
     @staticmethod
     def _is_direct_content(request: EngineRequest) -> bool:
-        kind = getattr(request.target, "content_type", str(request.target))
+        kind = request.target.content_type if hasattr(request.target, "content_type") else str(request.target)
         if kind in _DIRECT_TARGETS:
             return True
         if kind in {"account", "batch", "channel", "playlist", "profile", "user"}:
