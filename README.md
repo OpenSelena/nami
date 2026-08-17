@@ -237,7 +237,7 @@ Nami loads configuration in the following order of precedence:
 | `profiles_dir` | `NAMI_PROFILES_DIR` | Target profile text files directory | `~/Nami/profiles` |
 | `browser` | `NAMI_BROWSER` | Browser for automated cookie extraction (`brave`, `chrome`, `edge`, `firefox`) | `brave` |
 | `user_agent` | `NAMI_USER_AGENT` | Custom HTTP User-Agent string | Standard Chrome string |
-| `timeout_seconds` | `NAMI_TIMEOUT_SECONDS` / `NAMI_TIMEOUT` | Child engine process execution timeout (seconds) | `900` |
+| `timeout_seconds` | `NAMI_TIMEOUT_SECONDS` / `NAMI_TIMEOUT` | Child engine process execution timeout (seconds) | `1800` |
 | — | `NAMI_THEME` | Terminal UI theme styling (`dark`, `light`, `auto`) | `dark` |
 | — | `NAMI_SKIP_ENV_CHECK` | Set to `1` to bypass startup binary verification | `0` |
 

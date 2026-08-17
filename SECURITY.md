@@ -6,8 +6,8 @@ Security fixes are provided for the latest released major version of Nami.
 
 | Version | Supported |
 | --- | :---: |
-| 4.x | Yes |
-| 3.x and older | No |
+| 5.x | Yes |
+| 4.x and older | No |
 
 ## Reporting a vulnerability
 

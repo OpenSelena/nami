@@ -9,7 +9,10 @@ import sys
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 from nami import __version__
 from nami.archive import (
@@ -151,7 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     return int(namespace.handler(namespace))
 
 
-def run_interactive(repository: ConfigRepository | None = None, console: Any | None = None) -> int:
+def run_interactive(repository: ConfigRepository | None = None, console: Console | None = None) -> int:
     """Run the legacy no-argument menu over the current domain APIs."""
     from nami import ui
 
