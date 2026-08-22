@@ -1,13 +1,22 @@
-# Nami
+<div align="center">
 
-An open-source CLI media downloader for Instagram, TikTok, Facebook, and X.
+# 🌊 Nami
+
+### *An open-source CLI media downloader for Instagram, TikTok, Facebook, and X*
 
 [![CI](https://img.shields.io/github/actions/workflow/status/OpenSelena/nami/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/OpenSelena/nami/actions/workflows/ci.yml)
 [![PyPI Version](https://img.shields.io/pypi/v/nami.svg?color=D97757&style=flat-square&logo=pypi&logoColor=white)](https://pypi.org/project/nami/)
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://pypi.org/project/nami/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2e7d32.svg?style=flat-square)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/OpenSelena/nami?style=flat-square&color=D97757)](https://github.com/OpenSelena/nami)
 
-Nami coordinates **`gallery-dl`** and **`yt-dlp`** through a pure functional planning core and deterministic execution shell. It provides deduplicated archive indexing, multi-attempt failure classification, process isolation, and both interactive Rich terminal UI and scriptable JSON CLI modes.
+<p align="center">
+  Nami coordinates <b>gallery-dl</b> and <b>yt-dlp</b> through a pure functional planning core and deterministic execution shell. It provides deduplicated archive indexing, multi-attempt failure classification, process isolation, and both interactive Rich terminal UI and scriptable JSON CLI modes.
+</p>
+
+[Supported Platforms](#supported-platforms) • [Architecture](#architecture--design-principles) • [Installation](#installation) • [Quickstart](#quickstart) • [CLI Reference](#cli-reference) • [Authentication](#authentication)
+
+</div>
 
 ---
 
@@ -91,21 +100,21 @@ nami
 ```
 
 ```text
-┌──────────────────────── Nami ────────────────────────┐
-│ What do you want to download?                        │
-│                                                      │
-│  1  Photos only                                      │
-│  2  Videos only                                      │
-│  3  Stories only                                     │
-│  4  Highlights only                                  │
-│  5  Photos + Videos                                  │
-│  6  Stories + Highlights                             │
-│  7  All                                              │
-│  8  Settings                                         │
-│  0  Exit                                             │
-│                                                      │
-│  Save: ~/Nami/downloads                              │
-└──────────────────────────────────────────────────────┘
+╭─ Nami ─────────────────────────────────────────────── v5.0.3 ─╮
+│ What do you want to download?                                 │
+│                                                               │
+│  1  Photos only                                               │
+│  2  Videos only                                               │
+│  3  Stories only                                              │
+│  4  Highlights only                                           │
+│  5  Photos + Videos                                           │
+│  6  Stories + Highlights                                      │
+│  7  All                                                       │
+│  8  Settings                                                  │
+│  0  Exit                                                      │
+│                                                               │
+│  Save: ~/Nami/downloads                                       │
+╰───────────────────────────────────────────────────────────────╯
 ```
 
 On first launch without configuration, Nami interactively guides setup and workspace initialization.
