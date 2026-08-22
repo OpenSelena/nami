@@ -7,7 +7,7 @@ from pathlib import Path
 
 from nami.config import Settings
 from nami.models import MediaKind, Platform, Target
-from nami.targets import safe_target_dir
+from nami.targets import resolve_target_endpoints, safe_target_dir
 
 _MEDIA_ORDER = {
     MediaKind.PHOTOS: 0,
@@ -98,141 +98,31 @@ def build_plan(request: DownloadRequest) -> tuple[PlanStep, ...]:
 
 def _steps_for_target(target: Target, media: MediaKind, destination: Path) -> tuple[PlanStep, ...]:
     base_label = f"{target.platform.value}:{target.target_key}:{media.value}"
-
-    if target.content_type != "profile":
-        supported, reason = _direct_support(target, media)
-        return (
-            _step(
-                base_label,
-                target,
-                media,
-                destination,
-                target.canonical_url,
-                supported=supported,
-                reason=reason,
-            ),
+    endpoints = resolve_target_endpoints(target, media)
+    steps: list[PlanStep] = []
+    for endpoint in endpoints:
+        label = f"{base_label}:{endpoint.suffix_label}" if endpoint.suffix_label else base_label
+        engines: tuple[str, ...]
+        if not endpoint.supported:
+            engines = ()
+        elif media is MediaKind.VIDEOS:
+            engines = ("gallery-dl", "yt-dlp")
+        else:
+            engines = ("gallery-dl",)
+        steps.append(
+            PlanStep(
+                label=label,
+                target=target,
+                media=media,
+                destination=destination,
+                url=endpoint.url,
+                engines=engines,
+                supported=endpoint.supported,
+                reason=endpoint.reason,
+            )
         )
+    return tuple(steps)
 
-    if media is MediaKind.VIDEOS and target.platform is Platform.INSTAGRAM:
-        username = _require_username(target)
-        return (
-            _step(
-                f"{base_label}:feed",
-                target,
-                media,
-                destination,
-                target.canonical_url,
-            ),
-            _step(
-                f"{base_label}:reels",
-                target,
-                media,
-                destination,
-                f"https://www.instagram.com/{username}/reels/",
-            ),
-        )
-
-    if media is MediaKind.STORIES:
-        if target.platform is not Platform.INSTAGRAM:
-            return (_unsupported(base_label, target, media, destination),)
-        username = _require_username(target)
-        return (
-            _step(
-                base_label,
-                target,
-                media,
-                destination,
-                f"https://www.instagram.com/stories/{username}/",
-            ),
-        )
-
-    if media is MediaKind.HIGHLIGHTS:
-        if target.platform is not Platform.INSTAGRAM:
-            return (_unsupported(base_label, target, media, destination),)
-        username = _require_username(target)
-        return (
-            _step(
-                base_label,
-                target,
-                media,
-                destination,
-                f"https://www.instagram.com/{username}/highlights/",
-            ),
-        )
-
-    return (
-        _step(
-            base_label,
-            target,
-            media,
-            destination,
-            target.canonical_url,
-        ),
-    )
-
-
-def _direct_support(target: Target, media: MediaKind) -> tuple[bool, str | None]:
-    if media in {MediaKind.PHOTOS, MediaKind.VIDEOS}:
-        return True, None
-    if target.platform is Platform.INSTAGRAM:
-        if media is MediaKind.STORIES and target.content_type == "story":
-            return True, None
-        if media is MediaKind.HIGHLIGHTS and target.content_type == "highlight":
-            return True, None
-    return False, _unsupported_reason(target, media)
-
-
-def _step(
-    label: str,
-    target: Target,
-    media: MediaKind,
-    destination: Path,
-    url: str,
-    *,
-    supported: bool = True,
-    reason: str | None = None,
-) -> PlanStep:
-    engines: tuple[str, ...]
-    if not supported:
-        engines = ()
-    elif media is MediaKind.PHOTOS:
-        engines = ("gallery-dl",)
-    elif media is MediaKind.VIDEOS:
-        engines = ("gallery-dl", "yt-dlp")
-    else:
-        engines = ("gallery-dl",)
-    return PlanStep(
-        label=label,
-        target=target,
-        media=media,
-        destination=destination,
-        url=url,
-        engines=engines,
-        supported=supported,
-        reason=reason,
-    )
-
-
-def _unsupported(label: str, target: Target, media: MediaKind, destination: Path) -> PlanStep:
-    return _step(
-        label,
-        target,
-        media,
-        destination,
-        target.canonical_url,
-        supported=False,
-        reason=_unsupported_reason(target, media),
-    )
-
-
-def _unsupported_reason(target: Target, media: MediaKind) -> str:
-    return f"{media.value} are not supported for {target.platform.value} {target.content_type} targets"
-
-
-def _require_username(target: Target) -> str:
-    if target.username is None:
-        raise ValueError("profile target is missing a username")
-    return target.username
 
 
 def _coerce_media(value: MediaKind | str) -> MediaKind:

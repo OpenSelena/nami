@@ -2,6 +2,24 @@
 
 All notable changes to Nami are documented here.
 
+## [5.0.3] - 2026-08-23
+
+### Architecture and Refactoring
+
+- Co-located target endpoint expansion and route URL generation in `src/nami/targets.py` via `TargetEndpoint` and `resolve_target_endpoints()`.
+- Streamlined download planning in `src/nami/planner.py`, removing route leakage and feature envy.
+- Centralized user-facing failure diagnostic messages in `src/nami/failures.py` (`failure_message()`).
+- Removed redundant helper wrappers from `src/nami/doctor.py`.
+
+### Documentation and Agent Guidelines
+
+- Rewrote `README.md` to be deeply detailed, technically accurate, and free of marketing fluff.
+- Added Matt Pocock triage labels mapping (`docs/agents/triage-labels.md`) and updated `AGENTS.md`.
+
+### Verification
+
+- Verified all 154 unit tests pass offline with zero regressions.
+
 ## [5.0.2] - 2026-08-17
 
 ### Added

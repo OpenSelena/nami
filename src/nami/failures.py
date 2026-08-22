@@ -150,4 +150,25 @@ def classify_failure(result: CommandResult) -> FailureKind | None:
     return FailureKind.UNKNOWN
 
 
+_FAILURE_MESSAGES = {
+    FailureKind.AUTH: "Authentication was rejected",
+    FailureKind.COOKIE: "Cookies could not be loaded",
+    FailureKind.RATE_LIMIT: "The platform rate limit was reached",
+    FailureKind.NETWORK: "A network error interrupted the download",
+    FailureKind.EXTRACTOR: "The downloader could not extract this URL",
+    FailureKind.NOT_FOUND: "No matching content was found",
+    FailureKind.DEPENDENCY: "A downloader dependency is unavailable",
+    FailureKind.TIMEOUT: "The downloader timed out",
+    FailureKind.LOCKED: "The account or archive is locked",
+    FailureKind.CONFIG: "The download configuration is invalid",
+    FailureKind.UNKNOWN: "The downloader failed for an unknown reason",
+}
+
+
+def failure_message(failure: FailureKind) -> str:
+    """Return user-facing explanation for a FailureKind."""
+    return _FAILURE_MESSAGES.get(failure, "The downloader failed for an unknown reason")
+
+
 classify_command_result = classify_failure
+

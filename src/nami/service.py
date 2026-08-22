@@ -13,7 +13,7 @@ from nami.auth import AuthMode, AuthSpec, resolve_auth
 from nami.config import Settings
 from nami.engines import Engine, EngineRequest, GalleryDlEngine, YtDlpEngine
 from nami.events import DownloadEvent, EventSink, NullEventSink
-from nami.failures import classify_failure
+from nami.failures import classify_failure, failure_message
 from nami.models import (
     AttemptResult,
     BatchResult,
@@ -573,17 +573,5 @@ def create_default_service(*, event_sink: EventSink | None = None) -> NamiServic
 
 
 def _failure_message(failure: FailureKind) -> str:
-    messages = {
-        FailureKind.AUTH: "Authentication was rejected",
-        FailureKind.COOKIE: "Cookies could not be loaded",
-        FailureKind.RATE_LIMIT: "The platform rate limit was reached",
-        FailureKind.NETWORK: "A network error interrupted the download",
-        FailureKind.EXTRACTOR: "The downloader could not extract this URL",
-        FailureKind.NOT_FOUND: "No matching content was found",
-        FailureKind.DEPENDENCY: "A downloader dependency is unavailable",
-        FailureKind.TIMEOUT: "The downloader timed out",
-        FailureKind.LOCKED: "The account or archive is locked",
-        FailureKind.CONFIG: "The download configuration is invalid",
-        FailureKind.UNKNOWN: "The downloader failed for an unknown reason",
-    }
-    return messages[failure]
+    return failure_message(failure)
+

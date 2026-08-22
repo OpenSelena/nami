@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .config import Settings
-from .models import Platform, Target
+from .models import MediaKind, Platform, Target
 
 _HOSTS = {
     Platform.INSTAGRAM: frozenset(
@@ -210,6 +211,75 @@ def parse_target(raw: str, platform_hint: Platform | str | None = None) -> Targe
         content_type=content_type,
         content_id=content_id,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class TargetEndpoint:
+    """One resolved download endpoint for a target and media kind."""
+
+    url: str
+    suffix_label: str = ""
+    supported: bool = True
+    reason: str | None = None
+
+
+def resolve_target_endpoints(target: Target, media: MediaKind) -> tuple[TargetEndpoint, ...]:
+    """Resolve endpoint URLs and support status for a target and media kind."""
+    if target.content_type != "profile":
+        if media in {MediaKind.PHOTOS, MediaKind.VIDEOS}:
+            return (TargetEndpoint(target.canonical_url),)
+        if target.platform is Platform.INSTAGRAM:
+            if media is MediaKind.STORIES and target.content_type == "story":
+                return (TargetEndpoint(target.canonical_url),)
+            if media is MediaKind.HIGHLIGHTS and target.content_type == "highlight":
+                return (TargetEndpoint(target.canonical_url),)
+        return (
+            TargetEndpoint(
+                target.canonical_url,
+                supported=False,
+                reason=f"{media.value} are not supported for {target.platform.value} {target.content_type} targets",
+            ),
+        )
+
+    if media is MediaKind.VIDEOS and target.platform is Platform.INSTAGRAM:
+        username = target.username
+        if username is None:
+            raise ValueError("profile target is missing a username")
+        return (
+            TargetEndpoint(target.canonical_url, suffix_label="feed"),
+            TargetEndpoint(f"https://www.instagram.com/{username}/reels/", suffix_label="reels"),
+        )
+
+    if media is MediaKind.STORIES:
+        if target.platform is not Platform.INSTAGRAM:
+            return (
+                TargetEndpoint(
+                    target.canonical_url,
+                    supported=False,
+                    reason=f"{media.value} are not supported for {target.platform.value} {target.content_type} targets",
+                ),
+            )
+        username = target.username
+        if username is None:
+            raise ValueError("profile target is missing a username")
+        return (TargetEndpoint(f"https://www.instagram.com/stories/{username}/"),)
+
+    if media is MediaKind.HIGHLIGHTS:
+        if target.platform is not Platform.INSTAGRAM:
+            return (
+                TargetEndpoint(
+                    target.canonical_url,
+                    supported=False,
+                    reason=f"{media.value} are not supported for {target.platform.value} {target.content_type} targets",
+                ),
+            )
+        username = target.username
+        if username is None:
+            raise ValueError("profile target is missing a username")
+        return (TargetEndpoint(f"https://www.instagram.com/{username}/highlights/"),)
+
+    return (TargetEndpoint(target.canonical_url),)
+
 
 
 def safe_target_dir(base_dir: Path | str, target: Target) -> Path:

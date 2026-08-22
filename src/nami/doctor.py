@@ -362,7 +362,9 @@ def _urllib3_check() -> CheckResult:
     folded_owners = tuple(owner.casefold().replace("_", "-") for owner in owners)
     origin_folded = origin.casefold()
     installed_conflicts = tuple(
-        package.replace("_", "-") for package in _CONFLICT_PACKAGES if _find_spec(package) is not None
+        package.replace("_", "-")
+        for package in _CONFLICT_PACKAGES
+        if importlib.util.find_spec(package) is not None
     )
     hijacked = any(marker in origin_folded for marker in _CONFLICT_MARKERS) or any(
         any(marker in owner for marker in _CONFLICT_MARKERS) for owner in folded_owners
@@ -452,17 +454,9 @@ def _distribution_version(distribution_name: str) -> str | None:
 
 def _package_owners(package_name: str) -> tuple[str, ...]:
     try:
-        owners = metadata.packages_distributions().get(package_name, ())
+        return tuple(str(owner) for owner in metadata.packages_distributions().get(package_name, ()))
     except (AttributeError, OSError, ValueError):
         return ()
-    return tuple(str(owner) for owner in owners)
-
-
-def _find_spec(module_name: str) -> object | None:
-    try:
-        return importlib.util.find_spec(module_name)
-    except (ImportError, AttributeError, ValueError):
-        return None
 
 
 def _owner_text(owners: tuple[str, ...]) -> str:
