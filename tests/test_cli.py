@@ -196,3 +196,12 @@ def test_download_profile_errors_are_in_json_without_prompting(
     assert cli.main(["download", "--profiles", "--platform", "instagram", "--json"]) == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload["profile_errors"][0]["line_number"] == 1
+
+
+def test_main_module_is_invokable(monkeypatch: pytest.MonkeyPatch) -> None:
+    import runpy
+
+    monkeypatch.setattr(cli, "main", lambda: 0)
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_module("nami", run_name="__main__")
+    assert exit_info.value.code == 0

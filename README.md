@@ -105,14 +105,16 @@ python -m pip install --upgrade nami
 
 ### 1. Interactive Terminal UI
 
-Run `nami` without arguments to open the interactive menu:
+Run `nami` (or `python -m nami` if Python Scripts directory is not on PATH) without arguments:
 
 ```bash
 nami
+# or
+python -m nami
 ```
 
 ```text
-╭─ Nami ───────────────────────────────────────────────────────────── v5.0.3 ─╮
+╭─ Nami ───────────────────────────────────────────────────────────── v5.0.4 ─╮
 │ What do you want to download?                                               │
 │                                                                             │
 │  1  Photos only                                                             │

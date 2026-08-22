@@ -2,6 +2,13 @@
 
 All notable changes to Nami are documented here.
 
+## [5.0.4] - 2026-08-23
+
+### Packaging and CLI Entrypoints
+
+- Added `src/nami/__main__.py` to enable universal `python -m nami` execution across all operating systems regardless of whether Python script directories are registered in system `PATH`.
+- Added unit test `test_main_module_is_invokable` in `tests/test_cli.py`.
+
 ## [5.0.3] - 2026-08-23
 
 ### Architecture and Refactoring
