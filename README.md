@@ -14,7 +14,7 @@
   Nami coordinates <b>gallery-dl</b> and <b>yt-dlp</b> through a pure functional planning core and deterministic execution shell. It provides deduplicated archive indexing, multi-attempt failure classification, process isolation, and both interactive Rich terminal UI and scriptable JSON CLI modes.
 </p>
 
-[Supported Platforms](#supported-platforms) • [Architecture](#architecture--design-principles) • [Installation](#installation) • [Quickstart](#quickstart) • [CLI Reference](#cli-reference) • [Authentication](#authentication)
+[Platform Matrix](#platform-support-matrix) • [Architecture](#architecture--pipeline) • [Installation](#installation) • [Quickstart](#quickstart) • [CLI Reference](#cli-reference) • [Configuration](#configuration--environment-variables) • [Diagnostics](#system-diagnostics)
 
 </div>
 
@@ -22,54 +22,66 @@
 
 ## Table of Contents
 
-- [Supported Platforms](#supported-platforms)
-- [Architecture & Design Principles](#architecture--design-principles)
+- [Platform Support Matrix](#platform-support-matrix)
+- [Architecture & Pipeline](#architecture--pipeline)
 - [Installation](#installation)
 - [Quickstart](#quickstart)
-- [Workspace Layout](#workspace-layout)
+  - [1. Interactive Mode](#1-interactive-terminal-ui)
+  - [2. CLI Batch Invocations](#2-cli-batch-invocations)
+- [Workspace Hierarchy](#workspace-hierarchy)
 - [CLI Reference](#cli-reference)
-  - [`nami setup`](#nami-setup)
   - [`nami download`](#nami-download)
+  - [`nami setup`](#nami-setup)
   - [`nami doctor`](#nami-doctor)
   - [`nami config`](#nami-config)
   - [`nami archive reset`](#nami-archive-reset)
-- [Authentication](#authentication)
-- [Failure Classification & Retry Policy](#failure-classification--retry-policy)
-- [Exit Codes](#exit-codes)
-- [Development & Testing](#development--testing)
+- [Authentication & Cookies](#authentication--cookies)
+- [Failure Taxonomy & Retry Policy](#failure-taxonomy--retry-policy)
+- [Deterministic Exit Codes](#deterministic-exit-codes)
+- [Configuration & Environment Variables](#configuration--environment-variables)
+- [Development & Verification](#development--verification)
 - [License](#license)
 
 ---
 
-## Supported Platforms
+## Platform Support Matrix
 
-| Platform | Photos / Posts | Videos / Reels | Stories | Highlights | Authentication | Primary Engine |
+| Platform | Photos & Posts | Videos & Reels | Stories | Highlights | Auth Method | Primary Engine |
 | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| **Instagram** | Supported | Supported | Supported | Supported | Netscape Cookie / Anonymous | `gallery-dl` (Photos/Stories) / `yt-dlp` (Video Fallback) |
-| **TikTok** | Limited by upstream | Supported | Unsupported | Unsupported | Browser DB / Netscape Cookie | `yt-dlp` / `gallery-dl` |
-| **Facebook** | Limited by upstream | Supported | Unsupported | Unsupported | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
-| **X (Twitter)** | Limited by upstream | Supported | Unsupported | Unsupported | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
+| **Instagram** | Supported | Supported | Supported | Supported | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` (Video Fallback) |
+| **TikTok** | Limited | Supported | Unsupported | Unsupported | Browser DB / Netscape Cookie | `yt-dlp` / `gallery-dl` |
+| **Facebook** | Limited | Supported | Unsupported | Unsupported | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
+| **X (Twitter)** | Limited | Supported | Unsupported | Unsupported | Netscape Cookie / Anonymous | `gallery-dl` / `yt-dlp` |
 
-*Unsupported media/platform combinations return structured `Outcome.UNSUPPORTED` (Exit Code `3`) rather than silent failure or fake success.*
+> [!NOTE]
+> Unsupported platform/media combinations emit structured `Outcome.UNSUPPORTED` records and exit with status `3` rather than silently skipping or masking errors.
 
 ---
 
-## Architecture & Design Principles
+## Architecture & Pipeline
 
-1. **Pure Core, Imperative Shell**:
-   - `targets.py`: URL parsing, sanitization, canonical host mapping, and media endpoint expansion.
-   - `planner.py`: Pure mapping from `Target` + `MediaKind` to deterministic `PlanStep` sequences without filesystem I/O.
-   - `retry.py`: Stateless retry decision engine with exponential jittered backoff.
-   - `service.py`: Orchestrator executing plan steps behind atomic file locks (`archive.lock`).
-2. **Dual-Engine Routing ([ADR-0001](docs/adr/0001-dual-engine-architecture.md))**:
-   - Photos, Instagram stories, and highlights route to `gallery-dl`.
-   - Videos route to `gallery-dl` with automatic fallback to `yt-dlp` upon `FailureKind.EXTRACTOR`.
-   - Network errors, rate limits, and authentication rejections retry on the same engine without inappropriate cross-engine churn.
-3. **No Shell Invocations (`shell=False`)**:
-   - All subprocess arguments are passed as discrete string arrays (`argv`) to prevent shell injection.
-   - Process trees are tracked and terminated via process group signals (`SIGTERM` / `SIGKILL` on POSIX, `taskkill /PID <PID> /T /F` on Windows).
-4. **Strict Path Containment**:
-   - Every destination folder is validated against `base_dir` using `safe_target_dir()` to prevent path traversal attacks.
+Nami enforces a strict boundary between pure deterministic domain planning and stateful subprocess execution ([ADR-0001](docs/adr/0001-dual-engine-architecture.md)):
+
+```mermaid
+flowchart TD
+    A[Target URLs / Profiles] --> B[targets.py: Canonicalization & Endpoint Expansion]
+    B --> C[planner.py: Pure Functional PlanStep Generator]
+    C --> D{NamiService Orchestrator}
+    D -->|Acquire File Lock| E[archive.lock]
+    D -->|Select Backend| F[gallery-dl Engine]
+    F -->|Success| G[Update archive.txt & Emit BatchResult]
+    F -->|FailureKind.EXTRACTOR| H[Fallback: yt-dlp Engine]
+    F -->|Transient Network/Timeout| I[Exponential Jittered Retry]
+    H -->|Success| G
+    H -->|Exhausted| J[Structured Failure Report]
+```
+
+### Core Design Guarantees
+
+1. **Pure Planning Layer**: `targets.py` and `planner.py` compute output paths and executable `PlanStep` sequences without performing disk I/O or network requests.
+2. **Subprocess Isolation**: Zero shell interpretation (`shell=False`). Subprocesses execute via discrete `argv` tuples with full process-tree cleanup upon timeout or cancellation.
+3. **Atomic File Locking**: Download archives (`archive.txt`) are protected by non-blocking PID-keyed locks (`archive.lock`) to prevent concurrent process corruption.
+4. **Path Containment**: All output directories are verified against `base_dir` using `safe_target_dir()` to prevent path traversal or drive-escaping.
 
 ---
 
@@ -81,7 +93,7 @@ Requires **Python 3.10 or newer**.
 python -m pip install nami
 ```
 
-Upgrade to latest release:
+To update an existing installation:
 
 ```bash
 python -m pip install --upgrade nami
@@ -93,69 +105,68 @@ python -m pip install --upgrade nami
 
 ### 1. Interactive Terminal UI
 
-Run `nami` without arguments:
+Run `nami` without arguments to open the interactive menu:
 
 ```bash
 nami
 ```
 
 ```text
-╭─ Nami ─────────────────────────────────────────────── v5.0.3 ─╮
-│ What do you want to download?                                 │
-│                                                               │
-│  1  Photos only                                               │
-│  2  Videos only                                               │
-│  3  Stories only                                              │
-│  4  Highlights only                                           │
-│  5  Photos + Videos                                           │
-│  6  Stories + Highlights                                      │
-│  7  All                                                       │
-│  8  Settings                                                  │
-│  0  Exit                                                      │
-│                                                               │
-│  Save: ~/Nami/downloads                                       │
-╰───────────────────────────────────────────────────────────────╯
+╭─ Nami ───────────────────────────────────────────────────────────── v5.0.3 ─╮
+│ What do you want to download?                                               │
+│                                                                             │
+│  1  Photos only                                                             │
+│  2  Videos only                                                             │
+│  3  Stories only                                                            │
+│  4  Highlights only                                                         │
+│  5  Photos + Videos                                                         │
+│  6  Stories + Highlights                                                    │
+│  7  All                                                                     │
+│  8  Settings                                                                │
+│  0  Exit                                                                    │
+│                                                                             │
+│  Save: ~/Nami/downloads                                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
-On first launch without configuration, Nami interactively guides setup and workspace initialization.
-
-### 2. Command-Line Direct Invocations
+### 2. CLI Batch Invocations
 
 ```bash
-# Download direct posts
+# Download direct posts and reels
 nami download https://www.instagram.com/p/C_EXAMPLE/ https://x.com/OpenAI/status/1234567890
 
-# Filter specific media kinds
+# Target specific profile media
 nami download https://www.instagram.com/natgeo/ --media photos,videos
 
-# Batch download profiles from configured text files
-nami download --profiles --platform instagram --media stories,highlights
+# Headless batch processing with JSON stdout
+nami download --profiles --platform instagram --media all --json
 ```
 
 ---
 
-## Workspace Layout
+## Workspace Hierarchy
 
 ```text
 Nami/
-├── downloads/
+├── downloads/                     # Output files grouped by platform & account
 │   ├── instagram/
 │   │   └── natgeo/
-│   │       ├── Photos/
+│   │       ├── Photos/            # Downloaded image assets
+│   │       │   └── archive.txt    # Deduplication tracking record
+│   │       ├── Videos/            # Downloaded video assets
 │   │       │   └── archive.txt
-│   │       ├── Videos/
-│   │       │   └── archive.txt
-│   │       └── Stories/
+│   │       └── Stories/           # Downloaded story assets
 │   │           └── archive.txt
 │   └── tiktok/
 │       └── example_user/
 │           └── Videos/
-├── cookies/
+│               └── archive.txt
+├── cookies/                       # Netscape-format cookie files (*_cookies.txt)
 │   ├── instagram_cookies.txt
 │   ├── tiktok_cookies.txt
 │   ├── facebook_cookies.txt
 │   └── x_cookies.txt
-└── profiles/
+└── profiles/                      # Batch target profile lists (*_profiles.txt)
     ├── instagram_profiles.txt
     ├── tiktok_profiles.txt
     ├── facebook_profiles.txt
@@ -166,150 +177,171 @@ Nami/
 
 ## CLI Reference
 
-### `nami setup`
-
-Initializes configuration and workspace directories:
-
-```bash
-# Initialize workspace under specific root
-nami setup --root /path/to/parent
-
-# Create empty Netscape cookie template files
-nami setup --root . --cookie-templates
-
-# Machine-readable JSON output
-nami setup --root . --json
-```
-
 ### `nami download`
 
-Executes download planning and execution for URLs and profile lists:
+Plan and execute downloads for individual URLs or profile lists.
 
 ```bash
 nami download [URL ...] [OPTIONS]
 ```
 
+| Parameter / Flag | Type | Description |
+| :--- | :--- | :--- |
+| `URL ...` | Positional | One or more content or profile URLs |
+| `--profiles` | Flag | Batch download all targets listed in `profiles_dir` |
+| `--platform` | Option | Filter or specify platform (`instagram`, `tiktok`, `facebook`, `x`) |
+| `--media` | Option | Target media types: `photos`, `videos`, `stories`, `highlights`, `all` |
+| `--json` | Flag | Output structured JSON for automation |
+
+---
+
+### `nami setup`
+
+Initialize directory layout and generate default configuration.
+
+```bash
+nami setup [OPTIONS]
+```
+
 | Flag | Type | Description |
 | :--- | :--- | :--- |
-| `URL ...` | Positional | One or more direct content or profile URLs |
-| `--profiles` | Flag | Read target URLs from `profiles_dir/<platform>_profiles.txt` |
-| `--platform` | Option | Restrict or disambiguate platform (`instagram`, `tiktok`, `facebook`, `x`) |
-| `--media` | Option | Comma-separated media kinds (`photos`, `videos`, `stories`, `highlights`, `all`) |
-| `--json` | Flag | Output structured JSON result for automated pipelines |
+| `--root <PATH>` | Option | Set root parent directory for the workspace |
+| `--cookie-templates` | Flag | Generate template cookie files in `cookies/` |
+| `--json` | Flag | Output workspace initialization result as JSON |
+
+---
 
 ### `nami doctor`
 
-Runs local, read-only diagnostic checks without network I/O:
+Run read-only system diagnostic checks without network activity.
 
 ```bash
-nami doctor
-nami doctor --json
+nami doctor [OPTIONS]
 ```
 
-Checks executed:
-- Config JSON structure and permissions
-- Python version (>= 3.10)
-- Core module imports (`rich`, `gallery_dl`, `yt_dlp`)
-- Read/write access on `base_dir`, `cookies_dir`, and `profiles_dir`
-- Browser installation and process lock check (`brave`, `chrome`, `edge`, `firefox`)
-- Netscape cookie file syntax validation (minimum 7 valid columns)
-- Profile file accessibility and syntax validation
-- Namespace conflicts (`urllib3_future`, `niquests`)
-- Stale `archive.lock` files (> 1 hour old)
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--json` | Flag | Emit structured health checks and remediation advice in JSON |
+
+```text
+PASS  config: Configuration file is valid
+PASS  python: Python 3.14.7 (>= 3.10 required)
+PASS  dependencies: All required packages are installed
+PASS  workspace: Base directory is writable
+PASS  browser: Brave is installed and unlocked
+PASS  cookies: Netscape cookies valid
+PASS  urllib3: Clean namespace (no conflicts)
+PASS  archive_locks: No stale locks detected
+```
+
+---
 
 ### `nami config`
 
-Inspects and updates persistent configuration (`~/.nami/nami_config.json`):
+Manage persistent settings in `~/.nami/nami_config.json`.
 
 ```bash
-# Display all configuration
-nami config show
-
-# Get specific key
-nami config get base_dir
-nami config get browser
-
-# Set key
-nami config set browser chrome
-nami config set timeout_seconds 3600
-
-# Reset key to default
-nami config unset browser
-
-# JSON mode
-nami config show --json
+nami config show [--json]
+nami config get <KEY> [--json]
+nami config set <KEY> <VALUE> [--json]
+nami config unset <KEY> [--json]
 ```
+
+| Key | Valid Values | Description |
+| :--- | :--- | :--- |
+| `base_dir` | Valid path string | Root directory for downloaded media |
+| `cookies_dir` | Valid path string | Directory containing Netscape cookie files |
+| `profiles_dir` | Valid path string | Directory containing `*_profiles.txt` lists |
+| `browser` | `brave`, `chrome`, `edge`, `firefox` | Browser for automated cookie extraction |
+| `user_agent` | Custom string | HTTP User-Agent string sent to engines |
+| `timeout_seconds` | Integer (`> 0`) | Subprocess execution deadline |
+
+---
 
 ### `nami archive reset`
 
-Manages download tracking records (`archive.txt`) safely:
+Manage download tracking records (`archive.txt`) safely without data loss.
 
 ```bash
-# Dry run preview
-nami archive reset --all --dry-run
-
-# Back up archives for target (creates .bak files)
-nami archive reset --platform instagram --target natgeo --yes
-
-# Reset specific media kind
-nami archive reset --platform instagram --target natgeo --media stories --yes
-
-# Delete matching archives permanently
-nami archive reset --platform tiktok --target creator --delete --yes
+nami archive reset [OPTIONS]
 ```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--all` | Flag | Target all archives across all platforms |
+| `--platform <NAME>` | Option | Target archives for a specific platform |
+| `--target <KEY>` | Option | Target archives for a specific account/target |
+| `--media <KIND>` | Option | Filter archives by media kind |
+| `--dry-run` | Flag | Preview affected archives without modifying disk |
+| `--delete` | Flag | Permanently delete matching archives (default: create `.bak`) |
+| `--yes` | Flag | Confirm mutation without interactive prompt |
+| `--json` | Flag | Output affected archive list in JSON |
 
 ---
 
-## Authentication
+## Authentication & Cookies
 
-### Netscape Cookie Files
-Export cookies from your browser using a Netscape-compatible extension and save them into `cookies_dir`:
+### 1. Netscape Cookie Files
+Place exported cookies into `cookies_dir`. Nami verifies that files contain genuine 7-column rows before mounting them to child engines:
 - `instagram_cookies.txt` or `instagram.com_cookies.txt`
 - `tiktok_cookies.txt` or `tiktok.com_cookies.txt`
 - `facebook_cookies.txt` or `facebook.com_cookies.txt`
-- `x_cookies.txt`, `x.com_cookies.txt`, or `twitter_cookies.txt`
+- `x_cookies.txt` or `x.com_cookies.txt`
 
-Nami validates that cookie files contain valid 7-column rows before passing them to engines.
-
-### Browser Cookie DB
-When downloading from TikTok without an explicit cookie file, Nami attempts direct cookie extraction from the configured browser (`brave`, `chrome`, `edge`, `firefox`).
+### 2. Browser Database Session Extraction
+For TikTok downloads without an explicit cookie file, Nami extracts session tokens directly from local browser stores (`brave`, `chrome`, `edge`, `firefox`).
 
 ---
 
-## Failure Classification & Retry Policy
+## Failure Taxonomy & Retry Policy
 
-`failures.py` maps error logs to typed `FailureKind` categories:
+`failures.py` maps engine stderr diagnostics into typed `FailureKind` categories:
 
-| Failure Kind | Description | Retry Action |
+| Failure Category | Classification Criteria | Recovery Strategy |
 | :--- | :--- | :--- |
-| `FailureKind.AUTH` | HTTP 401, login required | 1 anonymous retry if credentials were supplied |
-| `FailureKind.COOKIE` | Cookie decryption or file error | 1 anonymous retry if credentials were supplied |
-| `FailureKind.RATE_LIMIT` | HTTP 429, too many requests | Stop immediately (no retry) |
-| `FailureKind.NETWORK` | DNS reset, SSL, connection timeout | Up to 3 attempts with exponential jittered backoff |
-| `FailureKind.EXTRACTOR` | Unsupported route, broken extractor | 1 retry on alternate engine (`yt-dlp`) |
-| `FailureKind.NOT_FOUND` | HTTP 404, account deleted | Stop immediately (`Outcome.NO_RESULTS`) |
-| `FailureKind.DEPENDENCY` | Missing binary or module | Stop immediately |
-| `FailureKind.TIMEOUT` | Subprocess deadline exceeded | Up to 3 attempts with backoff |
-| `FailureKind.LOCKED` | Checkpoint or archive lock busy | Stop immediately |
+| `FailureKind.AUTH` | HTTP 401, login required, session expired | 1 anonymous retry if credentials were provided |
+| `FailureKind.COOKIE` | Corrupt or undecryptable cookie file | 1 anonymous retry if credentials were provided |
+| `FailureKind.RATE_LIMIT` | HTTP 429, temporary platform block | Terminate immediately without cross-engine churn |
+| `FailureKind.NETWORK` | Connection reset, TLS failure, DNS timeout | Up to 3 attempts with exponential jittered backoff |
+| `FailureKind.EXTRACTOR` | Route failure, extractor deprecation | 1 retry on secondary engine (`yt-dlp`) |
+| `FailureKind.NOT_FOUND` | HTTP 404, user not found, private media | Stop immediately with `Outcome.NO_RESULTS` |
+| `FailureKind.DEPENDENCY` | Missing binary or unimportable module | Stop immediately |
+| `FailureKind.TIMEOUT` | Subprocess wall-clock deadline exceeded | Up to 3 attempts with exponential backoff |
+| `FailureKind.LOCKED` | Archive lock contention or account challenge | Stop immediately |
 
 ---
 
-## Exit Codes
+## Deterministic Exit Codes
 
-| Code | Outcome | Description |
+| Exit Code | Identifier | Meaning |
 | :---: | :--- | :--- |
-| **`0`** | `SUCCESS` | All items downloaded or already up to date |
-| **`1`** | `FAILED` | Unrecoverable failure across attempts |
-| **`2`** | `INVALID` | Malformed CLI arguments, invalid target URLs, or corrupt config |
-| **`3`** | `PARTIAL / WARN` | Mixed batch outcomes, unsupported operations, or doctor warnings |
-| **`4`** | `NO_RESULTS` | Extractor ran cleanly but found zero downloadable items |
+| **`0`** | `SUCCESS` | All plan steps downloaded or already up to date |
+| **`1`** | `FAILED` | Unrecoverable error occurred on one or more operations |
+| **`2`** | `INVALID` | Malformed CLI syntax, invalid URL, or corrupted configuration |
+| **`3`** | `PARTIAL / WARN` | Mixed outcomes, unsupported operations, or doctor warnings |
+| **`4`** | `NO_RESULTS` | Extractor ran successfully but found zero downloadable items |
 | **`130`** | `CANCELLED` | Execution interrupted via `SIGINT` (Ctrl+C) |
 
 ---
 
-## Development & Testing
+## Configuration & Environment Variables
 
-### Setup Environment
+| Setting Key | Environment Variable | Default Value | Description |
+| :--- | :--- | :--- | :--- |
+| `base_dir` | `NAMI_BASE_DIR` | `~/Nami/downloads` | Root directory for downloads |
+| `cookies_dir` | `NAMI_COOKIES_DIR` | `~/Nami/cookies` | Directory for Netscape cookies |
+| `profiles_dir` | `NAMI_PROFILES_DIR` | `~/Nami/profiles` | Directory for target profile lists |
+| `browser` | `NAMI_BROWSER` | `brave` | Browser for automated cookie discovery |
+| `user_agent` | `NAMI_USER_AGENT` | Chrome Default | HTTP User-Agent header |
+| `timeout_seconds` | `NAMI_TIMEOUT_SECONDS` | `1800` | Process execution deadline in seconds |
+| — | `NAMI_THEME` | `auto` | Terminal styling theme (`dark`, `light`, `auto`) |
+| — | `NAMI_SKIP_ENV_CHECK` | `0` | Set to `1` to bypass startup environment checks |
+
+---
+
+## Development & Verification
+
+### Local Environment Setup
 
 ```bash
 git clone https://github.com/OpenSelena/nami.git
@@ -318,22 +350,23 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-### Running Test Suite
+### Verification Commands
 
 ```bash
-# Run pytest
+# Run pytest unit test suite
 python -m pytest
 
-# Run Ruff linter and formatter
+# Run Ruff linter and code formatter checks
 python -m ruff check src tests
 python -m ruff format --check src tests
 
-# Build distribution package
+# Verify package build & metadata
 python -m build
+python -m twine check dist/*
 ```
 
 ---
 
 ## License
 
-Distributed under the [MIT License](LICENSE). Maintained by **[Igect](https://github.com/Igect)** under **[OpenSelena](https://github.com/OpenSelena)**.
+Distributed under the [MIT License](LICENSE). Developed and maintained by **[Igect](https://github.com/Igect)** under **[OpenSelena](https://github.com/OpenSelena)**.
