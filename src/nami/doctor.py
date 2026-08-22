@@ -362,9 +362,7 @@ def _urllib3_check() -> CheckResult:
     folded_owners = tuple(owner.casefold().replace("_", "-") for owner in owners)
     origin_folded = origin.casefold()
     installed_conflicts = tuple(
-        package.replace("_", "-")
-        for package in _CONFLICT_PACKAGES
-        if importlib.util.find_spec(package) is not None
+        package.replace("_", "-") for package in _CONFLICT_PACKAGES if importlib.util.find_spec(package) is not None
     )
     hijacked = any(marker in origin_folded for marker in _CONFLICT_MARKERS) or any(
         any(marker in owner for marker in _CONFLICT_MARKERS) for owner in folded_owners

@@ -171,4 +171,3 @@ def failure_message(failure: FailureKind) -> str:
 
 
 classify_command_result = classify_failure
-

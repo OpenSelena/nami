@@ -574,4 +574,3 @@ def create_default_service(*, event_sink: EventSink | None = None) -> NamiServic
 
 def _failure_message(failure: FailureKind) -> str:
     return failure_message(failure)
-

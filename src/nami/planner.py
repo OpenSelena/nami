@@ -124,7 +124,6 @@ def _steps_for_target(target: Target, media: MediaKind, destination: Path) -> tu
     return tuple(steps)
 
 
-
 def _coerce_media(value: MediaKind | str) -> MediaKind:
     if isinstance(value, MediaKind):
         return value

@@ -281,7 +281,6 @@ def resolve_target_endpoints(target: Target, media: MediaKind) -> tuple[TargetEn
     return (TargetEndpoint(target.canonical_url),)
 
 
-
 def safe_target_dir(base_dir: Path | str, target: Target) -> Path:
     """Resolve a target directory and prove it remains below base/platform."""
     if not isinstance(target.platform, Platform):
