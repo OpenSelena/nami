@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import sys
 import time
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ from nami.auth import (
     resolve_auth,
     validate_cookie_file,
 )
-from nami.config import PLATFORM_NAMES, SUPPORTED_BROWSERS, Settings
+from nami.config import PLATFORM_NAMES, SUPPORTED_BROWSERS, Settings, scripts_dir
 from nami.models import Platform
 
 _STALE_LOCK_SECONDS = 3600.0
@@ -97,6 +98,7 @@ def run_doctor(settings: Settings, config_error: BaseException | str | None = No
     checks.extend(_profile_checks(settings))
     checks.append(_urllib3_check())
     checks.append(_archive_lock_check(settings.base_dir))
+    checks.append(_path_check())
     return DoctorReport(tuple(checks))
 
 
@@ -440,6 +442,18 @@ def _archive_lock_check(base_dir: Path) -> CheckResult:
         "archive_locks",
         CheckStatus.PASS,
         "No stale archive locks were found",
+    )
+
+
+def _path_check() -> CheckResult:
+    if shutil.which("nami") is not None:
+        return CheckResult("path", CheckStatus.PASS, "nami is available on system PATH")
+    directory = scripts_dir()
+    return CheckResult(
+        "path",
+        CheckStatus.WARN,
+        "nami is not on system PATH; the 'nami' command will not work directly",
+        f"Add {directory} to your system PATH, then restart your terminal; or use 'python -m nami' as a workaround",
     )
 
 

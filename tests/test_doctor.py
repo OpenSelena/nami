@@ -48,6 +48,7 @@ def patch_dependencies(
         lambda: {"urllib3": ["urllib3"]},
     )
     monkeypatch.setattr(doctor, "is_browser_running", lambda browser: False)
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: f"/usr/local/bin/{name}")
 
 
 def by_name(report: doctor.DoctorReport) -> dict[str, doctor.CheckResult]:
@@ -151,3 +152,27 @@ def test_urllib3_conflict_is_reported_without_importing_package(
     assert check.status is CheckStatus.WARN
     assert "niquests" in check.message
     assert report.exit_code() == 3
+
+
+def test_path_check_warns_when_nami_not_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = prepare_workspace(tmp_path)
+    patch_dependencies(monkeypatch)
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+
+    report = run_doctor(settings)
+    check = by_name(report)["path"]
+
+    assert check.status is CheckStatus.WARN
+    assert "PATH" in check.message
+    assert check.remediation is not None
+    assert "python -m nami" in check.remediation
+
+
+def test_path_check_passes_when_nami_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = prepare_workspace(tmp_path)
+    patch_dependencies(monkeypatch)
+
+    report = run_doctor(settings)
+    check = by_name(report)["path"]
+
+    assert check.status is CheckStatus.PASS

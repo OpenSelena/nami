@@ -233,6 +233,24 @@ def _run_setup(arguments: argparse.Namespace) -> int:
         console.print(f"Cookies: {settings.cookies_dir}")
         console.print(f"Profiles: {settings.profiles_dir}")
         console.print(f"Config: {repository.path}")
+        try:
+            from nami.config import ensure_scripts_on_path
+
+            added = ensure_scripts_on_path()
+            if added:
+                console.print(
+                    f"\n[bold green]PATH configured:[/bold green] "
+                    f"Added [bold]{added}[/bold] to your system PATH.\n"
+                    f"Restart your terminal for the [bold]nami[/bold] command to become available."
+                )
+        except OSError:
+            from nami.config import scripts_dir
+
+            console.print(
+                f"\n[bold yellow]Warning:[/bold yellow] Could not auto-configure PATH.\n"
+                f"Manually add [bold]{scripts_dir()}[/bold] to your system PATH,\n"
+                f"or use [bold]python -m nami[/bold] as a workaround."
+            )
     return 0
 
 

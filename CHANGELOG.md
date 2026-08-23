@@ -2,6 +2,19 @@
 
 All notable changes to Nami are documented here.
 
+## [5.0.6] - 2026-08-23
+
+### PATH Auto-Configuration
+
+- `nami setup` now automatically adds the Python Scripts directory to the user's persistent PATH when missing.
+  - Windows: modifies user PATH via registry and broadcasts `WM_SETTINGCHANGE`.
+  - Linux/macOS: appends `export PATH` line to existing `.bashrc`, `.zshrc`, and `.profile`.
+  - Idempotent: skips silently when already configured.
+  - Falls back to a manual remediation warning on permission errors.
+- `nami doctor` checks whether `nami` is reachable on system PATH and warns with the exact Scripts directory when it is not.
+- Added `ensure_scripts_on_path()` and `scripts_dir()` to `config.py`.
+- Added unit tests for PATH detection, auto-configuration, and idempotency.
+
 ## [5.0.4] - 2026-08-23
 
 ### Packaging and CLI Entrypoints

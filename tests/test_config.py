@@ -153,3 +153,50 @@ def test_failed_replace_preserves_old_config_and_cleans_temp(tmp_path: Path, mon
 
     assert config_file.read_text(encoding="utf-8") == original
     assert not list(config_file.parent.glob(f".{config_file.name}.*.tmp"))
+
+
+def test_ensure_scripts_on_path_skips_when_already_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    from nami.config import ensure_scripts_on_path, scripts_dir
+
+    directory = scripts_dir()
+    monkeypatch.setenv("PATH", directory + os.pathsep + "/other")
+    assert ensure_scripts_on_path() is None
+
+
+def test_ensure_scripts_on_path_adds_to_unix_profiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nami.config import ensure_scripts_on_path
+
+    fake_scripts = str(tmp_path / "fake_scripts")
+    monkeypatch.setattr("nami.config.scripts_dir", lambda: fake_scripts)
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setattr("nami.config.sys.platform", "linux")
+    monkeypatch.setattr("nami.config.Path.home", lambda: tmp_path)
+
+    bashrc = tmp_path / ".bashrc"
+    bashrc.write_text("# existing\n", encoding="utf-8")
+    zshrc = tmp_path / ".zshrc"
+    zshrc.write_text("# existing\n", encoding="utf-8")
+
+    result = ensure_scripts_on_path()
+
+    assert result == fake_scripts
+    assert fake_scripts in bashrc.read_text(encoding="utf-8")
+    assert fake_scripts in zshrc.read_text(encoding="utf-8")
+    assert not (tmp_path / ".profile").exists()
+
+
+def test_ensure_scripts_on_path_is_idempotent_on_unix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nami.config import _add_to_unix_profiles
+
+    fake_scripts = str(tmp_path / "fake_scripts")
+    monkeypatch.setattr("nami.config.Path.home", lambda: tmp_path)
+
+    bashrc = tmp_path / ".bashrc"
+    bashrc.write_text("# existing\n", encoding="utf-8")
+
+    _add_to_unix_profiles(fake_scripts)
+    first = bashrc.read_text(encoding="utf-8")
+    _add_to_unix_profiles(fake_scripts)
+    second = bashrc.read_text(encoding="utf-8")
+
+    assert first == second

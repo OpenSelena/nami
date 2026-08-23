@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import sysconfig
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -301,3 +303,88 @@ def _chmod(path: Path, mode: int) -> None:
         path.chmod(mode)
     except OSError:
         pass
+
+
+def scripts_dir() -> str:
+    """Return the directory where pip places console-script entry points."""
+    return sysconfig.get_path("scripts")
+
+
+def ensure_scripts_on_path() -> str | None:
+    """Add the Python scripts directory to the user's persistent PATH if absent.
+
+    Returns the directory that was added, or None if already present.
+    """
+    directory = scripts_dir()
+    if not directory:
+        return None
+
+    current_entries = os.environ.get("PATH", "").split(os.pathsep)
+    target = os.path.normcase(os.path.normpath(directory))
+    if target in {os.path.normcase(os.path.normpath(e)) for e in current_entries if e}:
+        return None
+
+    if sys.platform == "win32":
+        _add_to_windows_path(directory)
+    else:
+        _add_to_unix_profiles(directory)
+
+    return directory
+
+
+def _add_to_windows_path(directory: str) -> None:
+    """Append directory to the current user's persistent PATH via the registry."""
+    import ctypes
+    import winreg
+
+    with winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER,
+        r"Environment",
+        0,
+        winreg.KEY_READ | winreg.KEY_WRITE,
+    ) as key:
+        try:
+            current, _ = winreg.QueryValueEx(key, "Path")
+        except FileNotFoundError:
+            current = ""
+
+        entries = [e for e in current.split(";") if e.strip()]
+        target = os.path.normcase(os.path.normpath(directory))
+        if target in {os.path.normcase(os.path.normpath(e)) for e in entries}:
+            return
+
+        entries.append(directory)
+        winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, ";".join(entries))
+
+    # Broadcast WM_SETTINGCHANGE so new terminals pick up the change
+    HWND_BROADCAST = 0xFFFF
+    WM_SETTINGCHANGE = 0x001A
+    SMTO_ABORTIFHUNG = 0x0002
+    ctypes.windll.user32.SendMessageTimeoutW(
+        HWND_BROADCAST,
+        WM_SETTINGCHANGE,
+        0,
+        "Environment",
+        SMTO_ABORTIFHUNG,
+        5000,
+        ctypes.byref(ctypes.c_ulong()),
+    )
+
+
+def _add_to_unix_profiles(directory: str) -> None:
+    """Append a PATH export line to existing shell profile files."""
+    marker = f'export PATH="{directory}:$PATH"'
+    line = f"\n# Added by Nami\n{marker}\n"
+    home = Path.home()
+    for name in (".bashrc", ".zshrc", ".profile"):
+        profile = home / name
+        try:
+            if not profile.is_file():
+                continue
+            content = profile.read_text(encoding="utf-8", errors="replace")
+            if directory in content:
+                continue
+            with profile.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+        except OSError:
+            continue
