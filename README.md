@@ -107,16 +107,24 @@ Requires **Python 3.10 or newer**.
 python -m pip install nami
 
 # Upgrade existing install
-python -m pip install --upgrade nami
+python -m pip install --upgrade --no-cache-dir nami
 ```
 
 ---
 
 ## Quickstart
 
+### Initialize workspace & PATH
+
+Run workspace setup once (auto-configures download directories and registers `nami` on system `PATH`):
+
+```bash
+python -m nami setup --root ~
+```
+
 ### Interactive mode
 
-Run `nami` (or `python -m nami` if Python Scripts directory is not on system `PATH`):
+Run `nami`:
 
 ```bash
 nami
