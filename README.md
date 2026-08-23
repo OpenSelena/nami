@@ -53,24 +53,22 @@ Nami separates pure domain logic from side effects using narrow module seams.
 
 ```mermaid
 flowchart TD
-    subgraph Planning ["Pure Domain Core (No Side Effects)"]
-        A[Target URLs / Profiles] -->|parse_target| B[targets.py: Canonicalization & Routing]
-        B -->|build_plan| C[planner.py: Deterministic Step Planner]
+    subgraph Core ["Pure Domain Core (No Side Effects)"]
+        A[Target URLs / Profiles] -->|parse_target| B[targets.py]
+        B -->|build_plan| C[planner.py]
     end
 
-    subgraph Execution ["Stateful Imperative Shell"]
-        C --> D{NamiService Orchestrator}
-        D -->|Lock Archive| E[archive.py: Atomic ArchiveLock]
-        D -->|Execute Command| F[process.py: Isolated SubprocessRunner]
-        F -->|Capture Output| G[failures.py: Failure Classifier]
-        G -->|Evaluate Decision| H[retry.py: Jittered Retry Policy]
+    subgraph Shell ["Stateful Imperative Shell"]
+        D{NamiService Orchestrator}
+        D -->|Lock Archive| E[archive.py]
+        D -->|Execute Command| F[process.py]
+        F --> G[gallery-dl / yt-dlp]
+        F -->|Capture Output| H[failures.py]
+        H -->|Evaluate Decision| I[retry.py]
     end
 
-    subgraph Output ["Downloader Adapters & Outcomes"]
-        F --> I[gallery-dl Engine]
-        F --> J[yt-dlp Engine]
-        D --> K[BatchResult: Deterministic Exit Code & JSON]
-    end
+    C --> D
+    D --> J[BatchResult: Exit Code & JSON]
 ```
 
 ### Module seams
